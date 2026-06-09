@@ -10,8 +10,11 @@ import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, Sur
 
 interface MerchantReportsTabPanelProps {
   customers: RegisteredCustomer[];
+  setCustomers?: React.Dispatch<React.SetStateAction<RegisteredCustomer[]>>;
   visits: VisitRecord[];
+  setVisits?: React.Dispatch<React.SetStateAction<VisitRecord[]>>;
   logs: ActivityLog[];
+  setLogs?: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   onResetAllData?: () => void;
   surveys: Survey[];
   setSurveys: React.Dispatch<React.SetStateAction<Survey[]>>;
@@ -22,8 +25,11 @@ interface MerchantReportsTabPanelProps {
 
 export default function MerchantReportsTabPanel({ 
   customers, 
+  setCustomers,
   visits, 
+  setVisits,
   logs, 
+  setLogs,
   onResetAllData,
   surveys,
   setSurveys,
@@ -72,6 +78,210 @@ export default function MerchantReportsTabPanel({
     setClerkFormError('');
     setClerkFormSuccess('');
     setClerkToDelete(null);
+  };
+
+  // Log / Action Editing States
+  const [editingLog, setEditingLog] = useState<ActivityLog | null>(null);
+  const [editLogTimestamp, setEditLogTimestamp] = useState('');
+  const [editLogClerkCode, setEditLogClerkCode] = useState('');
+  const [editLogClerkName, setEditLogClerkName] = useState('');
+  const [editLogCustomerFolio, setEditLogCustomerFolio] = useState('');
+  const [editLogCustomerName, setEditLogCustomerName] = useState('');
+  const [editLogTitle, setEditLogTitle] = useState('');
+  const [editLogDescription, setEditLogDescription] = useState('');
+  const [editLogType, setEditLogType] = useState<ActivityLog['type']>('stamp_added');
+  const [editLogAmount, setEditLogAmount] = useState<number>(0);
+  const [editLogError, setEditLogError] = useState('');
+  const [editLogSuccess, setEditLogSuccess] = useState('');
+
+  // Find customer name dynamically when editing folio
+  React.useEffect(() => {
+    if (editLogCustomerFolio) {
+      const match = customers.find(c => c.folio === editLogCustomerFolio);
+      if (match) {
+        setEditLogCustomerName(match.name);
+      }
+    }
+  }, [editLogCustomerFolio, customers]);
+
+  const formatISOToDatetimeLocal = (isoString?: string) => {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '';
+    const pad = (num: number) => String(num).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const formatDatetimeLocalToISO = (localString: string) => {
+    if (!localString) return new Date().toISOString();
+    return new Date(localString).toISOString();
+  };
+
+  const handleStartEditLog = (log: ActivityLog) => {
+    setEditingLog(log);
+    setEditLogTimestamp(formatISOToDatetimeLocal(log.timestamp));
+    setEditLogClerkCode(log.clerkCode || 'GER');
+    setEditLogClerkName(log.clerkName || 'Gerencia');
+    setEditLogCustomerFolio(log.customerFolio || '');
+    const cust = customers.find(c => c.folio === log.customerFolio);
+    setEditLogCustomerName(cust ? cust.name : '');
+    setEditLogTitle(log.title || '');
+    setEditLogDescription(log.description || '');
+    setEditLogType(log.type || 'stamp_added');
+    setEditLogAmount(log.amount || 0);
+    setEditLogError('');
+    setEditLogSuccess('');
+  };
+
+  const handleSaveLogEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditLogError('');
+    setEditLogSuccess('');
+
+    if (!editingLog) return;
+
+    if (!editLogTimestamp) {
+      setEditLogError('La fecha y hora es requerida.');
+      return;
+    }
+
+    if (!editLogClerkCode) {
+      setEditLogError('El encargado es requerido.');
+      return;
+    }
+
+    const isoTimestamp = formatDatetimeLocalToISO(editLogTimestamp);
+
+    // 1. Update logs array
+    if (setLogs) {
+      setLogs(prevLogs => {
+        return prevLogs.map(l => {
+          if (l.id === editingLog.id) {
+            return {
+              ...l,
+              timestamp: isoTimestamp,
+              clerkCode: editLogClerkCode,
+              clerkName: editLogClerkName,
+              customerFolio: editLogCustomerFolio || undefined,
+              title: editLogTitle,
+              description: editLogDescription,
+              type: editLogType,
+              amount: editLogAmount
+            };
+          }
+          return l;
+        });
+      });
+    }
+
+    // 2. Update visits array (if setVisits is provided)
+    if (setVisits) {
+      setVisits(prevVisits => {
+        return prevVisits.map(v => {
+          const isDirectMatch = v.id === editingLog.id.replace('log_', '');
+          const isTimestampMatch = v.timestamp === editingLog.timestamp && v.customerFolio === editingLog.customerFolio;
+          
+          if (isDirectMatch || isTimestampMatch) {
+            return {
+              ...v,
+              timestamp: isoTimestamp,
+              stampsAdded: editLogAmount,
+              clerkName: editLogClerkName,
+              clerkCode: editLogClerkCode,
+              customerFolio: editLogCustomerFolio,
+              customerName: editLogCustomerName || v.customerName
+            };
+          }
+          return v;
+        });
+      });
+    }
+
+    // 3. Update customers array visitsHistory and potentially stats (if setCustomers is provided)
+    if (setCustomers) {
+      setCustomers(prevCustomers => {
+        return prevCustomers.map(c => {
+          const isOriginalCustomer = c.folio === editingLog.customerFolio;
+          const isNewCustomer = c.folio === editLogCustomerFolio;
+
+          if (isOriginalCustomer || isNewCustomer) {
+            let updatedVisitsHistory = [...(c.visitsHistory || [])];
+            
+            if (isOriginalCustomer && editingLog.customerFolio !== editLogCustomerFolio) {
+              // Folio changed: remove from original customer
+              updatedVisitsHistory = updatedVisitsHistory.filter(v => {
+                const isDirectMatch = v.id === editingLog.id.replace('log_', '');
+                const isTimestampMatch = v.timestamp === editingLog.timestamp;
+                return !(isDirectMatch || isTimestampMatch);
+              });
+            } else {
+              // Same customer or updated customer: edit or update matching visit
+              let foundAndUpdated = false;
+              updatedVisitsHistory = updatedVisitsHistory.map(v => {
+                const isDirectMatch = v.id === editingLog.id.replace('log_', '');
+                const isTimestampMatch = v.timestamp === editingLog.timestamp;
+
+                if (isDirectMatch || isTimestampMatch) {
+                  foundAndUpdated = true;
+                  return {
+                    ...v,
+                    timestamp: isoTimestamp,
+                    stampsAdded: editLogAmount,
+                    clerkName: editLogClerkName,
+                    clerkCode: editLogClerkCode,
+                    customerFolio: editLogCustomerFolio,
+                    customerName: editLogCustomerName || v.customerName
+                  };
+                }
+                return v;
+              });
+
+              // If it's a new customer and not found yet, push it
+              if (isNewCustomer && editingLog.customerFolio !== editLogCustomerFolio && !foundAndUpdated) {
+                updatedVisitsHistory.push({
+                   id: editingLog.id.replace('log_', '') || ('vs_' + Date.now()),
+                   timestamp: isoTimestamp,
+                   stampsAdded: editLogAmount,
+                   clerkName: editLogClerkName,
+                   clerkCode: editLogClerkCode,
+                   customerFolio: editLogCustomerFolio,
+                   customerName: editLogCustomerName || c.name
+                });
+              }
+            }
+
+            // Recalculate stats
+            const totalStampsEarned = updatedVisitsHistory.reduce((sum, v) => sum + v.stampsAdded, 0);
+            const originalAmount = editingLog.amount || 0;
+            const amountDiff = editLogAmount - originalAmount;
+            
+            let newCurrentStamps = c.currentStamps;
+            if (isOriginalCustomer && editingLog.customerFolio !== editLogCustomerFolio) {
+              newCurrentStamps = Math.max(0, c.currentStamps - originalAmount);
+            } else if (isNewCustomer && editingLog.customerFolio !== editLogCustomerFolio) {
+              newCurrentStamps = c.currentStamps + editLogAmount;
+            } else {
+              newCurrentStamps = Math.max(0, c.currentStamps + amountDiff);
+            }
+
+            return {
+              ...c,
+              name: isNewCustomer ? (editLogCustomerName || c.name) : c.name,
+              visitsHistory: updatedVisitsHistory,
+              totalStampsEarned: Math.max(0, totalStampsEarned),
+              currentStamps: newCurrentStamps,
+              points: Math.max(0, totalStampsEarned * 100)
+            };
+          }
+          return c;
+        });
+      });
+    }
+
+    setEditLogSuccess('¡Registro de acción guardado exitosamente!');
+    setTimeout(() => {
+      setEditingLog(null);
+    }, 1000);
   };
 
   const handleSaveClerkEdit = (originalCode: string) => {
@@ -1595,12 +1805,13 @@ export default function MerchantReportsTabPanel({
                 <th className="p-3.5">Cliente</th>
                 <th className="p-3.5">Acción</th>
                 <th className="p-3.5 text-right">Estatus tazas</th>
+                <th className="p-3.5 text-center">Modificar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sortedFilteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-slate-400 italic">No hay registros que coincidan con la búsqueda.</td>
+                  <td colSpan={6} className="p-8 text-center text-slate-400 italic">No hay registros que coincidan con la búsqueda.</td>
                 </tr>
               ) : (
                 sortedFilteredLogs.map((item) => {
@@ -1627,6 +1838,15 @@ export default function MerchantReportsTabPanel({
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-[#149b8f]">
                         {(item.type as string) === 'stamp_added' ? `+${item.amount} taza(s)` : 'Creado'}
+                      </td>
+                      <td className="p-3.5 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => handleStartEditLog(item)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-[#149b8f]/10 text-slate-700 hover:text-[#149b8f] rounded-lg border border-slate-200 hover:border-[#149b8f]/30 transition-all font-sans font-bold text-[10.5px] cursor-pointer"
+                        >
+                          <Edit size={11} className="shrink-0" />
+                          Editar
+                        </button>
                       </td>
                     </tr>
                   );
@@ -1724,6 +1944,186 @@ export default function MerchantReportsTabPanel({
           </div>
         );
       })()}
+
+      {/* Edit Log Modal */}
+      {editingLog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 text-left">
+            
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-5 flex justify-between items-center">
+              <div>
+                <span className="text-[#2bbba9] font-mono text-[9px] uppercase tracking-wider font-extrabold block">MÓDULO DE EDICIÓN</span>
+                <h3 className="text-base font-serif font-black flex items-center gap-1.5">
+                  <Edit size={16} />
+                  Editar Registro de Acción
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingLog(null)}
+                className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white cursor-pointer font-bold transition text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveLogEdit} className="flex-1 overflow-y-auto p-6 space-y-4">
+              
+              {editLogError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3.5 rounded-xl font-medium animate-in fade-in duration-200">
+                  ⚠️ {editLogError}
+                </div>
+              )}
+
+              {editLogSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-[#149b8f] text-xs p-3.5 rounded-xl font-medium animate-in fade-in duration-200">
+                  ✨ {editLogSuccess}
+                </div>
+              )}
+
+              {/* Fecha y Hora */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Fecha y Hora de la Acción</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editLogTimestamp}
+                  onChange={(e) => setEditLogTimestamp(e.target.value)}
+                  className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all"
+                />
+              </div>
+
+              {/* Clerk / Encargado Selector */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Encargado (Nombre y Clave)</label>
+                <select
+                  value={editLogClerkCode}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    setEditLogClerkCode(code);
+                    if (code === 'GER') {
+                      setEditLogClerkName('Gerencia');
+                    } else {
+                      const match = clerks.find(c => c.code === code);
+                      if (match) {
+                        setEditLogClerkName(match.name);
+                      }
+                    }
+                  }}
+                  className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all cursor-pointer"
+                >
+                  <option value="GER">Gerencia (GER)</option>
+                  {clerks.map(c => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Se autoseleccionan el nombre registrado ({editLogClerkName}) y código correspondientes.
+                </p>
+              </div>
+
+              {/* Customer Folio */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Folio Cliente</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="Ej. 002"
+                    value={editLogCustomerFolio}
+                    onChange={(e) => setEditLogCustomerFolio(e.target.value)}
+                    className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Nombre del Cliente</label>
+                  <input
+                    type="text"
+                    placeholder="Registrado automáticamente"
+                    value={editLogCustomerName}
+                    onChange={(e) => setEditLogCustomerName(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none text-slate-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* Event Type & Amount */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tipo de Acción</label>
+                  <select
+                    value={editLogType}
+                    onChange={(e) => setEditLogType(e.target.value as any)}
+                    className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all cursor-pointer"
+                  >
+                    <option value="stamp_added">Sello Acreditado (stamp_added)</option>
+                    <option value="reward_unlocked">Premio Desbloqueado (reward_unlocked)</option>
+                    <option value="voucher_redeemed">Cupón Redimido (voucher_redeemed)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cantidad de Tazas/Sellos</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={editLogAmount}
+                    onChange={(e) => setEditLogAmount(parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Title & Description */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Título de Acción</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Sello Acreditado #002"
+                  value={editLogTitle}
+                  onChange={(e) => setEditLogTitle(e.target.value)}
+                  className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Descripción Detallada</label>
+                <textarea
+                  required
+                  rows={2}
+                  placeholder="Se registró visita por el encargado..."
+                  value={editLogDescription}
+                  onChange={(e) => setEditLogDescription(e.target.value)}
+                  className="w-full bg-slate-55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all leading-normal"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="pt-2 flex justify-end gap-2.5 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingLog(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!!editLogSuccess}
+                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-[#149b8f] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                >
+                  {editLogSuccess ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

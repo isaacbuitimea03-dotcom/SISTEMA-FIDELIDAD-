@@ -65,12 +65,12 @@ const INITIAL_SURVEYS: Survey[] = [
 
 export default function App() {
   // PERSISTENCE STORAGE KEYS
-  const CUSTOMERS_KEY = 'base44_loyalty_customers';
-  const VISITS_KEY = 'base44_loyalty_visits';
-  const LOGS_KEY = 'base44_loyalty_logs';
-  const APP_CONFIG_KEY = 'base44_loyalty_config';
-  const SURVEYS_KEY = 'base44_loyalty_surveys';
-  const ANSWERS_KEY = 'base44_loyalty_survey_answers';
+  const CUSTOMERS_KEY = 'cafecito_loyalty_customers_v3';
+  const VISITS_KEY = 'cafecito_loyalty_visits_v3';
+  const LOGS_KEY = 'cafecito_loyalty_logs_v3';
+  const APP_CONFIG_KEY = 'cafecito_loyalty_config_v3';
+  const SURVEYS_KEY = 'cafecito_loyalty_surveys_v3';
+  const ANSWERS_KEY = 'cafecito_loyalty_survey_answers_v3';
 
   // 1. Core State
   const [consumers, setConsumers] = useState<RegisteredCustomer[]>(() => {
@@ -78,7 +78,31 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
+        if (parsed && parsed.length > 0) {
+          let flag = 0;
+          return parsed.map((c: any) => ({
+            ...c,
+            visitsHistory: (c.visitsHistory || []).map((v: any) => {
+              let updatedClerkName = v.clerkName;
+              let updatedClerkCode = v.clerkCode;
+              if (v.clerkName === 'Arlett' || v.clerkName === 'ARLETT' || (v.clerkCode === 'C03' && v.clerkName?.includes('Arlett'))) {
+                if (flag % 2 === 0) {
+                  updatedClerkName = 'Noelia';
+                  updatedClerkCode = 'C03';
+                } else {
+                  updatedClerkName = 'Jose Luis';
+                  updatedClerkCode = 'CO1';
+                }
+                flag++;
+              }
+              return {
+                ...v,
+                clerkName: updatedClerkName,
+                clerkCode: updatedClerkCode
+              };
+            })
+          }));
+        }
       } catch (e) {
         console.error('Error loading customers', e);
       }
@@ -91,7 +115,28 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
+        if (parsed && parsed.length > 0) {
+          let flag = 0;
+          return parsed.map((v: any) => {
+            let updatedClerkName = v.clerkName;
+            let updatedClerkCode = v.clerkCode;
+            if (v.clerkName === 'Arlett' || v.clerkName === 'ARLETT' || (v.clerkCode === 'C03' && v.clerkName?.includes('Arlett'))) {
+              if (flag % 2 === 0) {
+                updatedClerkName = 'Noelia';
+                updatedClerkCode = 'C03';
+              } else {
+                updatedClerkName = 'Jose Luis';
+                updatedClerkCode = 'CO1';
+              }
+              flag++;
+            }
+            return {
+              ...v,
+              clerkName: updatedClerkName,
+              clerkCode: updatedClerkCode
+            };
+          });
+        }
       } catch (e) {
         console.error('Error loading visits', e);
       }
@@ -104,7 +149,40 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
+        if (parsed && parsed.length > 0) {
+          let flag = 0;
+          return parsed.map((l: any) => {
+            let updatedClerkName = l.clerkName;
+            let updatedClerkCode = l.clerkCode;
+            let updatedDescription = l.description || '';
+            if (l.clerkName === 'Arlett' || l.clerkName === 'ARLETT' || (l.clerkCode === 'C03' && l.clerkName?.includes('Arlett'))) {
+              if (flag % 2 === 0) {
+                updatedClerkName = 'Noelia';
+                updatedClerkCode = 'C03';
+              } else {
+                updatedClerkName = 'Jose Luis';
+                updatedClerkCode = 'CO1';
+              }
+              flag++;
+            }
+            // If description contains "Arlett" referring to the clerk
+            if (updatedDescription.includes('encargado Arlett (C03)')) {
+              updatedDescription = updatedDescription.replace('encargado Arlett (C03)', `encargado ${updatedClerkName} (${updatedClerkCode})`);
+            } else if (updatedDescription.includes('encargado Arlett')) {
+              updatedDescription = updatedDescription.replace('encargado Arlett', `encargado ${updatedClerkName}`);
+            } else if (updatedDescription.includes('Autorizó: Arlett, C03')) {
+              updatedDescription = updatedDescription.replace('Autorizó: Arlett, C03', `Autorizó: ${updatedClerkName}, ${updatedClerkCode}`);
+            } else if (updatedDescription.includes('Autorizó: Arlett')) {
+              updatedDescription = updatedDescription.replace('Autorizó: Arlett', `Autorizó: ${updatedClerkName}`);
+            }
+            return {
+              ...l,
+              clerkName: updatedClerkName,
+              clerkCode: updatedClerkCode,
+              description: updatedDescription
+            };
+          });
+        }
       } catch (e) {
         console.error('Error loading logs', e);
       }
@@ -903,30 +981,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F4F7F6] text-slate-800 flex flex-col relative font-sans selection:bg-[#149b8f]/20 selection:text-[#149b8f]">
       
-      {/* Dev URL Link Simulation Helper - Helps toggle views seamlessly in AI Studio's default / pathname */}
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex gap-3 text-[10px] bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-full border border-slate-850 text-slate-400 font-sans shadow-lg opacity-40 hover:opacity-100 transition-opacity">
-        <span className="font-mono text-slate-500 select-none font-bold">🛠️ Simular URL:</span>
-        <button
-          onClick={() => {
-            window.history.pushState({}, '', '/');
-            setIsClientMode(false);
-          }}
-          className={`hover:text-white transition cursor-pointer font-extrabold ${!isClientMode ? 'text-[#2bbba9]' : ''}`}
-        >
-          / (Sistema Cajero)
-        </button>
-        <span className="text-slate-750 font-bold font-sans">|</span>
-        <button
-          onClick={() => {
-            window.history.pushState({}, '', '/#fidelidad');
-            setIsClientMode(true);
-          }}
-          className={`hover:text-white transition cursor-pointer font-extrabold ${isClientMode ? 'text-[#2bbba9]' : ''}`}
-        >
-          /#fidelidad (Portal Cliente)
-        </button>
-      </div>
-
       {isClientMode ? (
         /* ==================== CLIENT STANDALONE WEBSITE (Matching user photo exactly) ==================== */
         <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10">
@@ -1009,35 +1063,6 @@ export default function App() {
                       <span className="font-bold text-sm">Ver mi tarjeta →</span>
                     </button>
                   </form>
-
-                  {/* Test Helper shortcuts */}
-                  <div className="pt-5 border-t border-slate-200/50 space-y-2 w-full max-w-sm text-center">
-                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">💡 Atajos de prueba (Click para autocompletar):</span>
-                    <div className="grid grid-cols-2 gap-2 text-[10px] font-sans">
-                      <button
-                        onClick={() => {
-                          setClientPhoneInput('6421138384');
-                          setClientBdayInput('1998-08-07');
-                          setClientPortalError('');
-                        }}
-                        className="p-2 border border-slate-200 hover:border-[#2bbba9] rounded-xl text-left bg-white cursor-pointer hover:bg-slate-50 leading-tight block text-slate-700"
-                      >
-                        <strong className="block text-slate-805 truncate">Dulce E.</strong>
-                        <span className="text-slate-400">6421138384</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setClientPhoneInput('6421151475');
-                          setClientBdayInput('1996-06-12');
-                          setClientPortalError('');
-                        }}
-                        className="p-2 border border-slate-200 hover:border-[#2bbba9] rounded-xl text-left bg-white cursor-pointer hover:bg-slate-50 leading-tight block text-slate-700"
-                      >
-                        <strong className="block text-slate-805 truncate">Tania Z.</strong>
-                        <span className="text-slate-400">6421151475</span>
-                      </button>
-                    </div>
-                  </div>
                 </motion.div>
               ) : (activeClientSurvey ? (
                 <motion.div
@@ -2345,8 +2370,11 @@ export default function App() {
                 ) : (
                   <MerchantReportsTabPanel 
                     customers={consumers} 
+                    setCustomers={setConsumers}
                     visits={visits} 
+                    setVisits={setVisits}
                     logs={logs} 
+                    setLogs={setLogs}
                     onResetAllData={() => {
                       if (confirm('¿Estás seguro de que deseas reiniciar todos los datos de visitas y logs históricos? Las cuentas de clientes permanecerán a salvo.')) {
                         setVisits([]);
