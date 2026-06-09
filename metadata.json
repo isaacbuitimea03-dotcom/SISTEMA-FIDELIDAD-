@@ -1,0 +1,6 @@
+{
+  "name": "Fidelidad Mi Cafecito",
+  "description": "Sistema de fidelidad por tazas y tarjetas digitales de cliente frecuente para Mi Cafecito.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
