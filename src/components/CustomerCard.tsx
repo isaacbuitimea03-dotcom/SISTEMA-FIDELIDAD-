@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Coffee, Sparkles, QrCode, Award, Info } from 'lucide-react';
 import { UserSession, MerchantConfig } from '../types';
+import { MiCafecitoLogo } from './MiCafecitoLogo';
 
 interface CustomerCardProps {
   session: UserSession;
@@ -236,8 +237,8 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
                   <QrCode size={80} className="text-slate-900" />
                   
                   {/* Dynamic central stamp logo */}
-                  <div className={`absolute w-6 h-6 ${currentTheme.logoBg} rounded-md border-2 border-white flex items-center justify-center shadow-md`}>
-                    <Coffee size={11} className="text-white" />
+                  <div className="absolute w-6 h-6 rounded-full border-1.5 border-white flex items-center justify-center shadow-md overflow-hidden bg-white">
+                    <MiCafecitoLogo size={23} />
                   </div>
                   
                   {/* Holographic scanner line animation */}
@@ -340,8 +341,8 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
                   <QrCode size={170} className="text-slate-900" />
                   
                   {/* Floating Mini stamp */}
-                  <div className={`absolute w-10 h-10 ${currentTheme.logoBg} rounded-xl border-[2.5px] border-white flex items-center justify-center shadow-md`}>
-                    <Coffee size={18} className="text-white" />
+                  <div className="absolute w-10 h-10 rounded-full border-2 border-white flex items-center justify-center shadow-md overflow-hidden bg-white">
+                    <MiCafecitoLogo size={38} />
                   </div>
                   
                   {/* Holographic scanner line visual effect */}

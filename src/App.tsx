@@ -23,6 +23,7 @@ import BirthdayTabPanel from './components/BirthdayTabPanel';
 import MerchantReportsTabPanel from './components/MerchantReportsTabPanel';
 import CustomerCard from './components/CustomerCard';
 import ClientSurveyWizard from './components/ClientSurveyWizard';
+import { MiCafecitoLogo } from './components/MiCafecitoLogo';
 
 const INITIAL_SURVEYS: Survey[] = [
   {
@@ -1128,15 +1129,8 @@ export default function App() {
                 >
                   {/* Brand header matching shared screenshot layout */}
                   <div className="flex flex-col items-center text-center space-y-3.5 mb-2">
-                    {/* Circle Logo Graphic - dark card rounded container with coffee graphics */}
-                    <div className="w-[84px] h-[84px] bg-slate-900 rounded-[24px] flex items-center justify-center shadow-lg border border-slate-800 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-900 to-slate-800" />
-                      <div className="relative z-10 flex flex-col items-center">
-                        <span className="text-3xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">☕</span>
-                        <span className="font-mono text-[6px] tracking-[0.2em] text-[#2bbba9] uppercase font-black mt-1">MI CAFECITO</span>
-                      </div>
-                      <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
-                    </div>
+                    {/* Circle Logo Graphic - beautiful official circle logo from user image */}
+                    <MiCafecitoLogo size={110} className="shadow-lg rounded-full" />
 
                     <div className="space-y-1">
                       <h1 className="text-3xl font-serif font-black tracking-tight text-slate-900" style={{ fontFamily: 'Georgia, serif' }}>Mi Cafecito</h1>
@@ -1714,9 +1708,9 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-3xl p-8 max-w-sm w-full text-center border border-slate-150 shadow-xl space-y-6 flex flex-col justify-center relative"
           >
-            {/* Top header icons brand */}
-            <div className="w-16 h-16 bg-[#149b8f]/5 text-[#149b8f] rounded-full flex items-center justify-center mx-auto shadow-inner text-2xl border border-[#149b8f]/10">
-              ☕
+            {/* Top header icons brand - beautiful circle logo from user image */}
+            <div className="mx-auto flex justify-center">
+              <MiCafecitoLogo size={88} className="shadow-md rounded-full" />
             </div>
 
             <div className="space-y-0.5">
@@ -1965,9 +1959,7 @@ export default function App() {
               
               {/* Header Box Brand Group */}
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#149b8f]/5 text-[#149b8f] border border-[#149b8f]/10 flex items-center justify-center font-bold text-xl">
-                  ☕
-                </div>
+                <MiCafecitoLogo size={42} className="shadow-sm rounded-full shrink-0" />
                 <div>
                   <h2 className="text-xl font-serif font-bold text-slate-900 leading-none">Fidelidad</h2>
                   <p className="text-[10px] text-slate-400 tracking-widest font-black uppercase mt-0.5">Mi Cafecito</p>
