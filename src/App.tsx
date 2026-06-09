@@ -9,7 +9,7 @@ import {
 
 import { 
   RegisteredCustomer, VisitRecord, ActivityLog, 
-  UserSession, MerchantConfig 
+  UserSession, MerchantConfig, Survey, SurveyAnswer, Clerk 
 } from './types';
 import { DEFAULT_MERCHANT_CONFIG } from './utils/rewards';
 import { 
@@ -22,6 +22,46 @@ import {
 import BirthdayTabPanel from './components/BirthdayTabPanel';
 import MerchantReportsTabPanel from './components/MerchantReportsTabPanel';
 import CustomerCard from './components/CustomerCard';
+import ClientSurveyWizard from './components/ClientSurveyWizard';
+
+const INITIAL_SURVEYS: Survey[] = [
+  {
+    id: 'sv01',
+    title: 'Satisfacción del Café',
+    isCampaign: false,
+    questions: [
+      {
+        id: 'q1',
+        text: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?',
+        type: 'multiple',
+        options: ['Excelente sabor', 'Muy fuerte', 'Le falta cuerpo', 'No consumo café']
+      }
+    ],
+    question: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?',
+    options: ['Excelente sabor', 'Muy fuerte', 'Le falta cuerpo', 'No consumo café'],
+    reward: '10% de descuento',
+    active: true,
+    submissionsCount: 42
+  },
+  {
+    id: 'sv02',
+    title: 'Limpieza y Atención',
+    isCampaign: false,
+    questions: [
+      {
+        id: 'q2',
+        text: '¿Cómo evalúa el tiempo de espera por parte del barista?',
+        type: 'multiple',
+        options: ['Inmediato (<5 min)', 'Estándar (5-10 min)', 'Lento (>10 min)']
+      }
+    ],
+    question: '¿Cómo evalúa el tiempo de espera por parte del barista?',
+    options: ['Inmediato (<5 min)', 'Estándar (5-10 min)', 'Lento (>10 min)'],
+    reward: 'Café de cortesía',
+    active: true,
+    submissionsCount: 19
+  }
+];
 
 export default function App() {
   // PERSISTENCE STORAGE KEYS
@@ -29,6 +69,8 @@ export default function App() {
   const VISITS_KEY = 'base44_loyalty_visits';
   const LOGS_KEY = 'base44_loyalty_logs';
   const APP_CONFIG_KEY = 'base44_loyalty_config';
+  const SURVEYS_KEY = 'base44_loyalty_surveys';
+  const ANSWERS_KEY = 'base44_loyalty_survey_answers';
 
   // 1. Core State
   const [consumers, setConsumers] = useState<RegisteredCustomer[]>(() => {
@@ -81,6 +123,32 @@ export default function App() {
     return DEFAULT_MERCHANT_CONFIG;
   });
 
+  const [surveys, setSurveys] = useState<Survey[]>(() => {
+    const saved = localStorage.getItem(SURVEYS_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error('Error loading surveys', e);
+      }
+    }
+    return INITIAL_SURVEYS;
+  });
+
+  const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswer[]>(() => {
+    const saved = localStorage.getItem(ANSWERS_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed || [];
+      } catch (e) {
+        console.error('Error loading survey answers', e);
+      }
+    }
+    return [];
+  });
+
   // Sync back to local storage
   useEffect(() => {
     localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(consumers));
@@ -93,6 +161,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
   }, [logs]);
+
+  useEffect(() => {
+    localStorage.setItem(SURVEYS_KEY, JSON.stringify(surveys));
+  }, [surveys]);
+
+  useEffect(() => {
+    localStorage.setItem(ANSWERS_KEY, JSON.stringify(surveyAnswers));
+  }, [surveyAnswers]);
 
   // Active Client Mode Routing check based on URL pathname (e.g. /fidelidad) or hash query to support independent link rendering
   const [isClientMode, setIsClientMode] = useState<boolean>(() => {
@@ -191,14 +267,28 @@ export default function App() {
   // System alert block
   const [systemBannerAlert, setSystemBannerAlert] = useState<string | null>(null);
 
-  // CLERKS LIST CONST (Fidelis requirements with secure PINs)
-  const CLERKS = [
-    { code: 'CO1', label: 'JOSE LUIS(CO1)', name: 'Jose Luis', pin: '1111' },
-    { code: 'CR02', label: 'DIANA(CR02)', name: 'Diana', pin: '2222' },
-    { code: 'C03', label: 'NOELIA(C03)', name: 'Noelia', pin: '3333' },
-    { code: 'CR04', label: 'AMAIRANI(CR04)', name: 'Amairani', pin: '4444' },
-    { code: 'C05', label: 'GISELA(C05)', name: 'Gisela', pin: '5555' }
-  ];
+  // CLERKS LIST STATE (Fidelis requirements with secure PINs)
+  const [CLERKS, setCLERKS] = useState<Clerk[]>(() => {
+    const saved = localStorage.getItem('bistro_clerks_list');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // Fallback
+      }
+    }
+    return [
+      { code: 'CO1', label: 'JOSE LUIS(CO1)', name: 'Jose Luis', pin: '1111' },
+      { code: 'CR02', label: 'DIANA(CR02)', name: 'Diana', pin: '2222' },
+      { code: 'C03', label: 'NOELIA(C03)', name: 'Noelia', pin: '3333' },
+      { code: 'CR04', label: 'AMAIRANI(CR04)', name: 'Amairani', pin: '4444' },
+      { code: 'C05', label: 'GISELA(C05)', name: 'Gisela', pin: '5555' }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('bistro_clerks_list', JSON.stringify(CLERKS));
+  }, [CLERKS]);
 
   // Helper date formatter
   const [currentTimeFormatted, setCurrentTimeFormatted] = useState('');
@@ -214,7 +304,7 @@ export default function App() {
 
   // Compute stats sizes
   const totalRegistered = consumers.length;
-  const cardsLimit = 100;
+  const cardsLimit = 500;
   const cardsAvailable = Math.max(0, cardsLimit - totalRegistered);
 
   // Calculate birthday stats dynamically
@@ -265,7 +355,7 @@ export default function App() {
   const getAvailableFolios = () => {
     const list: string[] = [];
     const assigned = new Set(consumers.map(c => c.folio));
-    for (let i = 1; i <= 100; i++) {
+    for (let i = 1; i <= 500; i++) {
       const option = String(i).padStart(3, '0');
       if (!assigned.has(option)) {
         list.push(option);
@@ -331,68 +421,149 @@ export default function App() {
     }
   };
 
+  // CLIENT SURVEY COMPLETION METHOD
+  const handleClientSurveyComplete = (surveyId: string, answers: { questionId: string; questionText: string; answerText: string }[]) => {
+    if (!clientPortalSession) return;
+    const targetSurvey = surveys.find(s => s.id === surveyId);
+    if (!targetSurvey) return;
+
+    // 1. Create survey answer response
+    const newAnswer: SurveyAnswer = {
+      id: 'ans_' + Date.now(),
+      surveyId,
+      surveyTitle: targetSurvey.title,
+      customerFolio: clientPortalSession.folio || '',
+      customerName: clientPortalSession.name,
+      timestamp: new Date().toISOString(),
+      answers
+    };
+
+    // 2. Append to survey answers
+    setSurveyAnswers(prev => [newAnswer, ...prev]);
+
+    // 3. Mark as answered to bypass check for next render
+    localStorage.setItem(`answered_survey_${clientPortalSession.folio}_${surveyId}`, 'true');
+
+    // 4. Increment submissionCount
+    setSurveys(prev => prev.map(s => s.id === surveyId ? { ...s, submissionsCount: s.submissionsCount + 1 } : s));
+
+    // 5. Gift Voucher Reward if applicable
+    if (targetSurvey.reward && targetSurvey.reward !== 'Sin recompensa') {
+      const rewardId = 'survey_' + Date.now();
+      const newVoucher = {
+        id: 'vouch_srv_' + Date.now(),
+        rewardId,
+        title: `Premio Encuesta: ${targetSurvey.reward}`,
+        code: 'ENCUESTA-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+        isRedeemed: false,
+        unlockedAt: new Date().toISOString()
+      };
+
+      setConsumers(prev => prev.map(c => {
+        if (c.folio === clientPortalSession.folio) {
+          const updatedVouchers = [...(c.unlockedVouchers || []), newVoucher];
+          // Sync session
+          setClientPortalSession(prevSes => prevSes ? { ...prevSes, unlockedVouchers: updatedVouchers } : null);
+          return {
+            ...c,
+            unlockedVouchers: updatedVouchers
+          };
+        }
+        return c;
+      }));
+
+      // Create log
+      const logRecord: ActivityLog = {
+        id: 'log_' + Date.now(),
+        type: 'reward_unlocked',
+        amount: 0,
+        title: `${targetSurvey.reward} (Premio Encuesta)`,
+        description: `Socio ${clientPortalSession.name} contestó la encuesta de satisfacción "${targetSurvey.title}".`,
+        timestamp: new Date().toISOString(),
+        customerFolio: clientPortalSession.folio
+      };
+      setLogs(prev => [logRecord, ...prev]);
+    } else {
+      // Just log without voucher
+      const logRecord: ActivityLog = {
+        id: 'log_' + Date.now(),
+        type: 'stamp_added',
+        amount: 0,
+        title: `Encuesta Contestada: ${targetSurvey.title}`,
+        description: `Socio ${clientPortalSession.name} completó la encuesta sin reclamo de cupón.`,
+        timestamp: new Date().toISOString(),
+        customerFolio: clientPortalSession.folio
+      };
+      setLogs(prev => [logRecord, ...prev]);
+    }
+  };
+
   // ADD STAMP ACTION (Clerk Required)
   const commitStampAddition = (clerkCode: string, clerkName: string) => {
     if (!stampingCustomerFolio) return;
     
+    // Find client first in current state
+    const targetCustomer = consumers.find(c => c.folio === stampingCustomerFolio);
+    if (!targetCustomer) return;
+
+    const updatedStamps = targetCustomer.currentStamps + 1;
+    const updatedTotal = targetCustomer.totalStampsEarned + 1;
+    
+    let alertTrigger = false;
+    let newVouchers = [...(targetCustomer.unlockedVouchers || [])];
+    let resetStamps = updatedStamps;
+
+    // Highlight stamp cap
+    if (updatedStamps >= config.stampsRequired) {
+      alertTrigger = true;
+      resetStamps = 0; 
+      newVouchers.push({
+        id: 'cpx_' + Date.now(),
+        rewardId: 'rm_main',
+        title: config.mainRewardTitle,
+        code: 'CUP-' + String(Math.floor(1000 + Math.random() * 9000)),
+        isRedeemed: false,
+        unlockedAt: new Date().toISOString()
+      });
+    }
+
+    // Register visit record
+    const record: VisitRecord = {
+      id: 'vs_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      stampsAdded: 1,
+      clerkName,
+      clerkCode,
+      customerFolio: targetCustomer.folio,
+      customerName: targetCustomer.name
+    };
+
+    // Register Action Log
+    const logRecord: ActivityLog = {
+      id: 'log_' + Date.now(),
+      type: 'stamp_added',
+      amount: 1,
+      title: `Sello Acreditado #${targetCustomer.folio}`,
+      description: `Se registró visita por el encargado ${clerkName} (${clerkCode}) para ${targetCustomer.name}.`,
+      timestamp: new Date().toISOString(),
+      clerkName,
+      clerkCode,
+      customerFolio: targetCustomer.folio
+    };
+
+    setVisits(prevV => [record, ...prevV]);
+    setLogs(prevL => [logRecord, ...prevL]);
+
+    if (alertTrigger) {
+      setCongratsRewardTitle(config.mainRewardTitle);
+    }
+
+    setSystemBannerAlert(`¡Visita registrada con éxito por ${clerkName}!`);
+    setTimeout(() => setSystemBannerAlert(null), 3000);
+
     setConsumers(prev => {
       return prev.map(c => {
         if (c.folio === stampingCustomerFolio) {
-          const updatedStamps = c.currentStamps + 1;
-          const updatedTotal = c.totalStampsEarned + 1;
-          
-          let alertTrigger = false;
-          let newVouchers = [...(c.unlockedVouchers || [])];
-          let resetStamps = updatedStamps;
-
-          // Highlight stamp cap
-          if (updatedStamps >= config.stampsRequired) {
-            alertTrigger = true;
-            resetStamps = 0; 
-            newVouchers.push({
-              id: 'cpx_' + Date.now(),
-              rewardId: 'rm_main',
-              title: config.mainRewardTitle,
-              code: 'CUP-' + String(Math.floor(1000 + Math.random() * 9000)),
-              isRedeemed: false,
-              unlockedAt: new Date().toISOString()
-            });
-          }
-
-          // Register visit record
-          const record: VisitRecord = {
-            id: 'vs_' + Date.now(),
-            timestamp: new Date().toISOString(),
-            stampsAdded: 1,
-            clerkName,
-            clerkCode,
-            customerFolio: c.folio,
-            customerName: c.name
-          };
-
-          // Register Action Log
-          const logRecord: ActivityLog = {
-            id: 'log_' + Date.now(),
-            type: 'stamp_added',
-            amount: 1,
-            title: `Sello Acreditado #${c.folio}`,
-            description: `Se registró visita por el encargado ${clerkName} (${clerkCode}) para ${c.name}.`,
-            timestamp: new Date().toISOString(),
-            clerkName,
-            clerkCode,
-            customerFolio: c.folio
-          };
-
-          setVisits(prevV => [record, ...prevV]);
-          setLogs(prevL => [logRecord, ...prevL]);
-
-          if (alertTrigger) {
-            setCongratsRewardTitle(config.mainRewardTitle);
-          }
-
-          setSystemBannerAlert(`¡Visita registrada con éxito por ${clerkName}!`);
-          setTimeout(() => setSystemBannerAlert(null), 3000);
-
           return {
             ...c,
             currentStamps: resetStamps,
@@ -410,37 +581,43 @@ export default function App() {
   };
 
   const handleConfirmStampWithPin = () => {
-    if (!stampSelectedClerk) return;
-    if (stampPinInput === stampSelectedClerk.pin || stampPinInput === 'BISTRO2026') {
-      commitStampAddition(stampSelectedClerk.code, stampSelectedClerk.name);
+    const matchedClerk = CLERKS.find(c => c.pin === stampPinInput) || 
+                         (stampPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+
+    if (matchedClerk) {
+      commitStampAddition(matchedClerk.code, matchedClerk.name);
       setStampSelectedClerk(null);
       setStampPinInput('');
       setStampPinError('');
     } else {
-      setStampPinError('El PIN del encargado es incorrecto o inválido.');
+      setStampPinError('La clave PIN de encargado es incorrecta.');
     }
   };
 
   // DECREASE / OVERRIDE STAMP ACTION WITH CLERK AUTH
   const handleDecreaseStampsWithAuth = (customerFolio: string, clerkCode: string, clerkName: string) => {
+    const targetCustomer = consumers.find(c => c.folio === customerFolio);
+    if (!targetCustomer || targetCustomer.currentStamps <= 0) return;
+
+    const logRecord: ActivityLog = {
+      id: 'log_' + Date.now(),
+      type: 'stamp_added',
+      amount: -1,
+      title: `Sello Descontado #${targetCustomer.folio}`,
+      description: `Se descontó 1 taza del cliente ${targetCustomer.name}. (Autorizó: ${clerkName}, ${clerkCode}).`,
+      timestamp: new Date().toISOString(),
+      clerkName,
+      clerkCode,
+      customerFolio: targetCustomer.folio
+    };
+
+    setLogs(prevL => [logRecord, ...prevL]);
+
+    setSystemBannerAlert(`Se descontó una taza de la cuenta de ${targetCustomer.name}`);
+    setTimeout(() => setSystemBannerAlert(null), 3500);
+
     setConsumers(prev => prev.map(c => {
-      if (c.folio === customerFolio && c.currentStamps > 0) {
-        const logRecord: ActivityLog = {
-          id: 'log_' + Date.now(),
-          type: 'stamp_added',
-          amount: -1,
-          title: `Sello Descontado #${c.folio}`,
-          description: `Se descontó 1 taza del cliente ${c.name}. (Autorizó: ${clerkName}, ${clerkCode}).`,
-          timestamp: new Date().toISOString(),
-          clerkName,
-          clerkCode,
-          customerFolio: c.folio
-        };
-        setLogs(prevL => [logRecord, ...prevL]);
-
-        setSystemBannerAlert(`Se descontó una taza de la cuenta de ${c.name}`);
-        setTimeout(() => setSystemBannerAlert(null), 3000);
-
+      if (c.folio === customerFolio) {
         return {
           ...c,
           currentStamps: c.currentStamps - 1,
@@ -475,18 +652,16 @@ export default function App() {
     e.preventDefault();
     if (!revertingCustomerFolio) return;
 
-    if (!revertSelectedClerk) {
-      setRevertPinError('Debes seleccionar un encargado para autorizar.');
-      return;
-    }
+    const matchedClerk = CLERKS.find(c => c.pin === revertPinInput) || 
+                         (revertPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
-    if (revertPinInput !== revertSelectedClerk.pin && revertPinInput !== 'BISTRO2026') {
-      setRevertPinError('La clave/PIN de seguridad ingresada es inválida.');
+    if (!matchedClerk) {
+      setRevertPinError('La clave PIN de seguridad ingresada es incorrecta o inválida.');
       return;
     }
 
     // Call actual decrease action
-    handleDecreaseStampsWithAuth(revertingCustomerFolio, revertSelectedClerk.code, revertSelectedClerk.name);
+    handleDecreaseStampsWithAuth(revertingCustomerFolio, matchedClerk.code, matchedClerk.name);
 
     // Reset
     setRevertingCustomerFolio(null);
@@ -511,35 +686,32 @@ export default function App() {
       return;
     }
 
-    if (!editSelectedClerk) {
-      setEditError('Debes seleccionar un encargado para autorizar los cambios.');
+    const matchedClerk = CLERKS.find(c => c.pin === editPinInput) || 
+                         (editPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+
+    if (!matchedClerk) {
+      setEditError('La clave PIN de seguridad ingresada es incorrecta.');
       return;
     }
 
-    if (editPinInput !== editSelectedClerk.pin && editPinInput !== 'BISTRO2026') {
-      setEditError('La clave/PIN de seguridad ingresada es inválida.');
-      return;
-    }
+    const stampDiff = editCurrentStamps - editingCustomer.currentStamps;
+    const logRecord: ActivityLog = {
+      id: 'log_' + Date.now(),
+      type: 'stamp_added',
+      amount: stampDiff,
+      title: `Edición de Cliente #${editingCustomer.folio}`,
+      description: `Modificación de datos del socio ${editingCustomer.name}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
+      timestamp: new Date().toISOString(),
+      clerkName: matchedClerk.name,
+      clerkCode: matchedClerk.code,
+      customerFolio: editingCustomer.folio
+    };
+
+    setLogs(prevL => [logRecord, ...prevL]);
 
     // Update state
     setConsumers(prev => prev.map(c => {
       if (c.folio === editingCustomer.folio) {
-        
-        // Activity log audit records
-        const stampDiff = editCurrentStamps - c.currentStamps;
-        const logRecord: ActivityLog = {
-          id: 'log_' + Date.now(),
-          type: 'stamp_added',
-          amount: stampDiff,
-          title: `Edición de Cliente #${c.folio}`,
-          description: `Modificación de datos del socio ${c.name}. Tazas de café de: ${c.currentStamps} a ${editCurrentStamps}. (Autorizó: ${editSelectedClerk.name} - ${editSelectedClerk.code}).`,
-          timestamp: new Date().toISOString(),
-          clerkName: editSelectedClerk.name,
-          clerkCode: editSelectedClerk.code,
-          customerFolio: c.folio
-        };
-        setLogs(prevL => [logRecord, ...prevL]);
-
         return {
           ...c,
           name: editName,
@@ -552,7 +724,7 @@ export default function App() {
       return c;
     }));
 
-    setSystemBannerAlert(`¡Tarjeta #${editingCustomer.folio} editada con éxito por ${editSelectedClerk.name}!`);
+    setSystemBannerAlert(`¡Tarjeta #${editingCustomer.folio} editada con éxito por ${matchedClerk.name}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
 
     // Reset editing state parameters
@@ -634,13 +806,11 @@ export default function App() {
     e.preventDefault();
     if (!deletingCustomerFolio) return;
 
-    if (!deleteSelectedClerk) {
-      setDeletePinError('Por favor escoge un encargado para firmar la eliminación.');
-      return;
-    }
+    const matchedClerk = CLERKS.find(c => c.pin === deletePinInput) || 
+                         (deletePinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
-    if (deletePinInput !== deleteSelectedClerk.pin && deletePinInput !== 'BISTRO2026') {
-      setDeletePinError('PIN de seguridad incorrecto.');
+    if (!matchedClerk) {
+      setDeletePinError('La clave PIN de seguridad ingresada es incorrecta.');
       return;
     }
 
@@ -654,10 +824,10 @@ export default function App() {
       type: 'voucher_redeemed' as any,
       amount: 0,
       title: `Tarjeta Eliminada #${deletingCustomerFolio}`,
-      description: `Se eliminó del padrón el folio físico número #${deletingCustomerFolio} correspondido a: ${targetName}. (Autorizó: ${deleteSelectedClerk.name} - ${deleteSelectedClerk.code}).`,
+      description: `Se eliminó del padrón el folio físico número #${deletingCustomerFolio} correspondido a: ${targetName}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
       timestamp: new Date().toISOString(),
-      clerkName: deleteSelectedClerk.name,
-      clerkCode: deleteSelectedClerk.code,
+      clerkName: matchedClerk.name,
+      clerkCode: matchedClerk.code,
       customerFolio: deletingCustomerFolio
     };
     setLogs(prevL => [logRecord, ...prevL]);
@@ -724,6 +894,11 @@ export default function App() {
   };
 
   const dashboardUpcomingBdays = getDashboardBirthdaysThisWeek();
+
+  // Find the first active unanswered survey for the logged-in client
+  const activeClientSurvey = clientPortalSession
+    ? surveys.find(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true')
+    : null;
 
   return (
     <div className="min-h-screen bg-[#F4F7F6] text-slate-800 flex flex-col relative font-sans selection:bg-[#149b8f]/20 selection:text-[#149b8f]">
@@ -864,6 +1039,34 @@ export default function App() {
                     </div>
                   </div>
                 </motion.div>
+              ) : (activeClientSurvey ? (
+                <motion.div
+                  key="client-survey-wizard-container"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="w-full max-w-sm space-y-4"
+                >
+                  <div className="bg-white border border-slate-200 rounded-3xl p-4 flex justify-between items-center shadow-sm text-xs text-slate-500 font-sans">
+                    <span>Socio, <strong className="text-slate-800 font-bold">{clientPortalSession.name}</strong></span>
+                    <button
+                      onClick={() => {
+                        setClientPortalSession(null);
+                        setClientPhoneInput('');
+                        setClientBdayInput('');
+                      }}
+                      className="text-[#2bbba9] hover:text-[#1b8c7c] font-black cursor-pointer text-xs uppercase"
+                    >
+                      Cerrar ✕
+                    </button>
+                  </div>
+
+                  <ClientSurveyWizard
+                    survey={activeClientSurvey}
+                    customerName={clientPortalSession.name}
+                    onComplete={(answers) => handleClientSurveyComplete(activeClientSurvey.id, answers)}
+                  />
+                </motion.div>
               ) : (
                 <motion.div
                   key="client-card-visible"
@@ -898,7 +1101,7 @@ export default function App() {
                     Toca en el plástico virtual para girarlo y mostrar tu código QR al encargado del Bistro de Mi Cafecito. ¡Muchas gracias por tu visita!
                   </p>
                 </motion.div>
-              )}
+              ))}
             </AnimatePresence>
           </div>
 
@@ -974,91 +1177,52 @@ export default function App() {
                 <p className="text-xs text-slate-400 mt-0.5">Autoriza la acreditación de una taza de café para el programa de lealtad:</p>
               </div>
 
-              {!stampSelectedClerk ? (
-                <div className="space-y-2">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-sans">Selecciona encargado:</p>
-                  {CLERKS.map(cl => (
-                    <button
-                      key={cl.code}
-                      type="button"
-                      onClick={() => {
-                        setStampSelectedClerk(cl);
-                        setStampPinInput('');
-                        setStampPinError('');
-                      }}
-                      className="w-full flex items-center justify-between p-3 border border-slate-200 hover:border-[#149b8f] hover:bg-[#149b8f]/5 rounded-2xl tracking-normal text-left transition-all active:scale-[0.99] cursor-pointer"
-                    >
-                      <span className="text-xs font-bold font-sans text-slate-800">{cl.label}</span>
-                      <span className="font-mono text-[10px] bg-cyan-50 border border-cyan-150 text-cyan-800 px-2 py-0.5 font-bold rounded">
-                        {cl.code}
-                      </span>
-                    </button>
-                  ))}
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest block font-sans">Introducir Clave de Encargado *</label>
+                  <input
+                    type="password"
+                    maxLength={10}
+                    placeholder="Clave de 4 dígitos..."
+                    value={stampPinInput}
+                    onChange={(e) => {
+                      setStampPinInput(e.target.value);
+                      setStampPinError('');
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#149b8f] rounded-xl px-4 py-2.5 font-sans text-center text-sm outline-none text-[#149b8f] font-bold tracking-widest"
+                    autoFocus
+                  />
+                  {stampPinError && (
+                    <p className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded text-center leading-normal">{stampPinError}</p>
+                  )}
+                </div>
 
+                <div className="bg-teal-50/50 border border-teal-100/50 rounded-xl p-3 text-[10px] text-slate-500 font-sans space-y-0.5">
+                  <span className="block font-black text-[#149b8f] uppercase">Acceso Protegido</span>
+                  <span>Introduce tu clave de seguridad asignada. El sistema identificará al personal de forma automática.</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs font-sans">
                   <button
                     type="button"
-                    onClick={() => setStampingCustomerFolio(null)}
-                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs cursor-pointer text-center mt-2"
+                    onClick={() => {
+                      setStampingCustomerFolio(null);
+                      setStampPinInput('');
+                      setStampPinError('');
+                    }}
+                    className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-xl font-bold cursor-pointer text-center"
                   >
-                    Regresar
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmStampWithPin}
+                    className="py-2.5 bg-[#149b8f] hover:bg-[#11847a] text-white rounded-xl font-black cursor-pointer text-center"
+                  >
+                    Firmar y Sumar
                   </button>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-2xl p-3 leading-tight">
-                    <span className="text-base">💼</span>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">{stampSelectedClerk.name} ({stampSelectedClerk.code})</h4>
-                      <p className="text-[10px] text-slate-400">Ingresa tu clave para firmar la visita.</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest block font-sans">PIN de Seguridad *</label>
-                    <input
-                      type="password"
-                      maxLength={10}
-                      placeholder="••••"
-                      value={stampPinInput}
-                      onChange={(e) => {
-                        setStampPinInput(e.target.value);
-                        setStampPinError('');
-                      }}
-                      className="w-full bg-slate-50 border border-slate-200 focus:border-[#149b8f] rounded-xl px-4 py-2.5 font-sans tracking-widest font-black text-center text-sm outline-none text-[#149b8f]"
-                      autoFocus
-                    />
-                    {stampPinError && (
-                      <p className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded text-center leading-normal">{stampPinError}</p>
-                    )}
-                  </div>
-
-                  <div className="bg-teal-50/50 border border-teal-100/50 rounded-xl p-3 text-[10px] text-slate-500 font-sans space-y-0.5">
-                    <span className="block font-black text-[#149b8f] uppercase">Acceso Protegido</span>
-                    <span>Introduce tu PIN confidencial de encargado del Bistro para acreditar esta taza de consumo.</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs font-sans">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStampSelectedClerk(null);
-                        setStampPinInput('');
-                        setStampPinError('');
-                      }}
-                      className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-xl font-bold cursor-pointer text-center"
-                    >
-                      Cambiar Cajero
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmStampWithPin}
-                      className="py-2.5 bg-[#149b8f] hover:bg-[#11847a] text-white rounded-xl font-black cursor-pointer text-center"
-                    >
-                      Firmar y Sumar
-                    </button>
-                  </div>
-                </div>
-              )}
+              </div>
             </motion.div>
           </div>
         )}
@@ -1147,45 +1311,21 @@ export default function App() {
                 </div>
 
                 {/* SIGNATURE SAFEGUARD */}
-                <div className="border-t border-dashed border-slate-200 pt-4 space-y-3">
+                <div className="border-t border-dashed border-slate-200 pt-4 space-y-3 font-sans">
                   <div className="space-y-1">
-                    <label className="text-[#149b8f] font-black uppercase tracking-widest text-[9px] block">💼 Firma de Encargado Autorizado *</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        value={editSelectedClerk ? editSelectedClerk.code : ''}
-                        onChange={(e) => {
-                          const cl = CLERKS.find(c => c.code === e.target.value);
-                          setEditSelectedClerk(cl || null);
-                          setEditPinInput('');
-                        }}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-sans text-slate-800 focus:border-[#149b8f]"
-                      >
-                        <option value="">Seleccionar operador</option>
-                        {CLERKS.map(c => (
-                          <option key={c.code} value={c.code}>{c.label}</option>
-                        ))}
-                      </select>
-
-                      <input
-                        type="password"
-                        placeholder="PIN..."
-                        value={editPinInput}
-                        onChange={(e) => setEditPinInput(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-center tracking-widest text-[#149b8f] font-bold focus:border-[#149b8f] outline-none"
-                        disabled={!editSelectedClerk}
-                      />
-                    </div>
+                    <label className="text-[#149b8f] font-black uppercase tracking-widest text-[9px] block">💼 Clave de Autorización de Encargado *</label>
+                    <input
+                      type="password"
+                      placeholder="Introduce tu PIN confidencial de encargado del Bistro"
+                      value={editPinInput}
+                      onChange={(e) => setEditPinInput(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs text-center tracking-widest text-[#149b8f] font-bold focus:border-[#149b8f] outline-none"
+                      required
+                    />
                   </div>
-
-                  {editSelectedClerk ? (
-                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-500 font-sans leading-normal">
-                      🔑 Ingresa el PIN confidencial del cajero seleccionado para autorizar y almacenar las modificaciones en el socio.
-                    </div>
-                  ) : (
-                    <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-400 font-sans italic">
-                      Selecciona un miembro autorizado del Bistro para firmar esta operación.
-                    </div>
-                  )}
+                  <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-400 font-sans text-center">
+                    El sistema detectará automáticamente qué personal autoriza la lealtad según el PIN confidencial ingresado.
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-xs font-sans pt-2">
@@ -1234,38 +1374,20 @@ export default function App() {
 
               <form onSubmit={handleConfirmRevertStamp} className="space-y-3.5 text-xs font-sans">
                 <div className="space-y-1">
-                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">Cajero Responsable</label>
-                  <select
-                    value={revertSelectedClerk ? revertSelectedClerk.code : ''}
-                    onChange={(e) => {
-                      const cl = CLERKS.find(c => c.code === e.target.value);
-                      setRevertSelectedClerk(cl || null);
-                      setRevertPinInput('');
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none"
+                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">Clave de Autorización</label>
+                  <input
+                    type="password"
+                    placeholder="••••"
+                    value={revertPinInput}
+                    onChange={(e) => setRevertPinInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-250 rounded-xl px-4 py-2.5 text-center tracking-widest font-black outline-none focus:border-red-500 text-red-600 font-sans"
                     required
-                  >
-                    <option value="">Selecciona quién autoriza...</option>
-                    {CLERKS.map(c => (
-                      <option key={c.code} value={c.code}>{c.label}</option>
-                    ))}
-                  </select>
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-slate-400 font-sans mt-1 text-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    Introduce tu PIN confidencial de encargado del Bistro. El sistema detectará automáticamente quién autoriza el descuento.
+                  </p>
                 </div>
-
-                {revertSelectedClerk && (
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">PIN de Seguridad</label>
-                    <input
-                      type="password"
-                      placeholder="••••"
-                      value={revertPinInput}
-                      onChange={(e) => setRevertPinInput(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-xl px-4 py-2.5 text-center tracking-widest font-black outline-none focus:border-red-500 text-red-600 font-sans"
-                      required
-                    />
-                    <p className="text-[10px] text-slate-400 font-sans mt-1">🔑 Ingresa tu PIN de seguridad asignado.</p>
-                  </div>
-                )}
 
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2">
                   <button
@@ -1313,38 +1435,20 @@ export default function App() {
 
               <form onSubmit={handleConfirmDeleteCustomer} className="space-y-3.5 text-xs font-sans">
                 <div className="space-y-1">
-                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">Supervisor que autoriza</label>
-                  <select
-                    value={deleteSelectedClerk ? deleteSelectedClerk.code : ''}
-                    onChange={(e) => {
-                      const cl = CLERKS.find(c => c.code === e.target.value);
-                      setDeleteSelectedClerk(cl || null);
-                      setDeletePinInput('');
-                    }}
-                    className="w-full bg-slate-50 border border-slate-205 rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none"
+                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">Clave de Autorización de Supervisor</label>
+                  <input
+                    type="password"
+                    placeholder="••••"
+                    value={deletePinInput}
+                    onChange={(e) => setDeletePinInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-250 rounded-xl px-4 py-2.5 text-center tracking-widest font-black outline-none focus:border-red-600 text-red-600 font-sans"
                     required
-                  >
-                    <option value="">Selecciona supervisor...</option>
-                    {CLERKS.map(c => (
-                      <option key={c.code} value={c.code}>{c.label}</option>
-                    ))}
-                  </select>
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-slate-405 font-sans mt-1 text-center bg-slate-50 p-2 rounded-lg border border-slate-105">
+                    El sistema detectará automáticamente quién autoriza la eliminación de la tarjeta según el PIN ingresado.
+                  </p>
                 </div>
-
-                {deleteSelectedClerk && (
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">PIN de Seguridad</label>
-                    <input
-                      type="password"
-                      placeholder="••••"
-                      value={deletePinInput}
-                      onChange={(e) => setDeletePinInput(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-xl px-4 py-2.5 text-center tracking-widest font-black outline-none focus:border-red-600 text-red-600 font-sans"
-                      required
-                    />
-                    <p className="text-[10px] text-slate-400 font-sans mt-1">🔑 Ingresa tu PIN de seguridad asignado.</p>
-                  </div>
-                )}
 
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2">
                   <button
@@ -1777,14 +1881,14 @@ export default function App() {
 
             </div>
 
-            {/* Sidebar bottom cards widget layout (Exact image replica "Tarjetas / Tarjetas 001 - 100") */}
+            {/* Sidebar bottom cards widget layout (Exact image replica "Tarjetas / Tarjetas 001 - 500") */}
             <div className="space-y-4 pt-5 border-t border-slate-100 mt-6 md:mt-0">
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-sans text-slate-500 space-y-1 shadow-inner">
                 <div className="flex gap-2 items-center">
                   <Coffee size={14} className="text-[#149b8f]" />
                   <span className="font-extrabold text-slate-800">Tarjetas de Control</span>
                 </div>
-                <p className="text-[10px] text-slate-400">Tarjetas asignadas 001 — 100 disponibles</p>
+                <p className="text-[10px] text-slate-400">Tarjetas asignadas 001 — 500 disponibles</p>
                 <div className="pt-2">
                   <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono">
                     <span>Asignadas: {totalRegistered}</span>
@@ -1935,7 +2039,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                   <div className="space-y-0.5">
                     <h1 className="text-3xl font-serif font-black tracking-tight text-slate-950">Clientes</h1>
-                    <p className="text-xs text-[#149b8f] font-sans font-bold uppercase tracking-wider">{totalRegistered} de 100 tarjetas asignadas</p>
+                    <p className="text-xs text-[#149b8f] font-sans font-bold uppercase tracking-wider">{totalRegistered} de 500 tarjetas asignadas</p>
                   </div>
 
                   <button
@@ -2129,7 +2233,7 @@ export default function App() {
                           <option key={fol} value={fol}>Folio físico #{fol}</option>
                         ))}
                       </select>
-                      <p className="text-[10px] text-slate-400">Selecciona un folio de tarjeta física disponible del 001 al 100.</p>
+                      <p className="text-[10px] text-slate-400">Selecciona un folio de tarjeta física disponible del 001 al 500.</p>
                     </div>
 
                     <div className="space-y-1">
@@ -2262,6 +2366,11 @@ export default function App() {
                         setLogs([logRecord]);
                       }
                     }}
+                    surveys={surveys}
+                    setSurveys={setSurveys}
+                    surveyAnswers={surveyAnswers}
+                    clerks={CLERKS}
+                    setClerks={setCLERKS}
                   />
                 )}
               </div>

@@ -440,7 +440,7 @@ export function generateInitialCustomers(): RegisteredCustomer[] {
   const occupiedFolios = new Set(PREMIUM_BASE_CUSTOMERS.map(c => c.folio));
   
   let nameIndex = 0;
-  for (let cardNum = 1; cardNum <= 100; cardNum++) {
+  for (let cardNum = 1; cardNum <= 500; cardNum++) {
     if (generatedList.length >= 91) break;
     const padFolio = String(cardNum).padStart(3, '0');
     if (!occupiedFolios.has(padFolio)) {

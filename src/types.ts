@@ -73,3 +73,44 @@ export interface MerchantConfig {
   stampsRequired: number;
   mainRewardTitle: string;
 }
+
+export interface Clerk {
+  code: string;
+  label: string;
+  name: string;
+  pin: string;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  text: string;
+  type: 'multiple' | 'open';
+  options?: string[]; // only for multiple choice
+}
+
+export interface Survey {
+  id: string;
+  title: string;
+  isCampaign: boolean;
+  questions: SurveyQuestion[];
+  reward: string;
+  active: boolean;
+  submissionsCount: number;
+  question?: string; // legacy fallback
+  options?: string[]; // legacy fallback
+}
+
+export interface SurveyAnswer {
+  id: string;
+  surveyId: string;
+  surveyTitle: string;
+  customerFolio: string;
+  customerName: string;
+  timestamp: string;
+  answers: {
+    questionId: string;
+    questionText: string;
+    answerText: string;
+  }[];
+}
+
