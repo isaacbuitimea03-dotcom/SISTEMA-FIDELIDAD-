@@ -521,6 +521,10 @@ export default function App() {
   const getBirthdaysThisWeekCount = () => {
     let weekCount = 0;
     const today = new Date('2026-06-09T00:37:48Z');
+    const todayYear = today.getUTCFullYear();
+    const todayMonth = today.getUTCMonth();
+    const todayDay = today.getUTCDate();
+    const todayMidnight = new Date(Date.UTC(todayYear, todayMonth, todayDay));
     
     consumers.forEach(c => {
       if (!c.birthday) return;
@@ -529,13 +533,15 @@ export default function App() {
       const bMonth = parseInt(parts[1], 10) - 1;
       const bDay = parseInt(parts[2], 10);
       
-      let nextBday = new Date(2026, bMonth, bDay);
-      if (nextBday.getTime() < today.getTime()) {
-        nextBday.setFullYear(2027);
+      let bdayYear = todayYear;
+      let nextBdayMidnight = new Date(Date.UTC(bdayYear, bMonth, bDay));
+      if (nextBdayMidnight.getTime() < todayMidnight.getTime()) {
+        bdayYear += 1;
+        nextBdayMidnight = new Date(Date.UTC(bdayYear, bMonth, bDay));
       }
       
-      const diffTime = nextBday.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffTime = nextBdayMidnight.getTime() - todayMidnight.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       if (diffDays <= 7) {
         weekCount++;
       }
@@ -1075,6 +1081,10 @@ export default function App() {
   const getDashboardBirthdaysThisWeek = () => {
     const list: Array<{ customer: RegisteredCustomer; daysLeft: number; label: string }> = [];
     const today = new Date('2026-06-09T00:37:48Z');
+    const todayYear = today.getUTCFullYear();
+    const todayMonth = today.getUTCMonth();
+    const todayDay = today.getUTCDate();
+    const todayMidnight = new Date(Date.UTC(todayYear, todayMonth, todayDay));
     
     consumers.forEach(c => {
       if (!c.birthday) return;
@@ -1083,13 +1093,15 @@ export default function App() {
       const birthMonth = parseInt(parts[1], 10) - 1;
       const birthDay = parseInt(parts[2], 10);
       
-      let nextBday = new Date(2026, birthMonth, birthDay);
-      if (nextBday.getTime() < today.getTime()) {
-        nextBday.setFullYear(2027);
+      let bdayYear = todayYear;
+      let nextBdayMidnight = new Date(Date.UTC(bdayYear, birthMonth, birthDay));
+      if (nextBdayMidnight.getTime() < todayMidnight.getTime()) {
+        bdayYear += 1;
+        nextBdayMidnight = new Date(Date.UTC(bdayYear, birthMonth, birthDay));
       }
       
-      const diffTime = nextBday.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffTime = nextBdayMidnight.getTime() - todayMidnight.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       
       if (diffDays <= 7) {
         list.push({

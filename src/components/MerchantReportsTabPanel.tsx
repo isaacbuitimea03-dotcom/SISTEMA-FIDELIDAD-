@@ -4,7 +4,7 @@ import {
   FileText, Sliders, Calendar, Search, Trash2, 
   Plus, MessageSquare, HelpCircle, Download, Check, ToggleLeft, ToggleRight,
   Eye, ClipboardList, Settings, Sparkles, HelpCircle as QuestionIcon,
-  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit
+  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift
 } from 'lucide-react';
 import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk } from '../types';
 
@@ -40,6 +40,34 @@ export default function MerchantReportsTabPanel({
   const [filterPeriod, setFilterPeriod] = useState<'todo' | 'semana' | 'mes' | 'anio'>('todo');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Birthday Template States (moved from BirthdayTabPanel)
+  const [bdayTemplate, setBdayTemplate] = useState<string>(() => {
+    return localStorage.getItem('mi_cafecito_bday_template') || 
+      '¡Hola, {nombre}! 🥳 Te saludamos de parte de tu cafetería favorita "Mi Cafecito" ☕. ¡Feliz Cumpleaños! Hoy en tu día especial ({fecha}) queremos consentirte. Visítanos en el Bistro hoy y te regalaremos una deliciosa rebanada de pastel gratis en tu consumo 🍰✨. ¡Presenta tu tarjeta con el folio #{folio}! 🎉';
+  });
+
+  const [onlyTodayActive, setOnlyTodayActive] = useState<boolean>(() => {
+    return localStorage.getItem('mi_cafecito_only_today_active') !== 'false';
+  });
+
+  const handleUpdateTemplate = (newVal: string) => {
+    setBdayTemplate(newVal);
+    localStorage.setItem('mi_cafecito_bday_template', newVal);
+  };
+
+  const handleUpdateOnlyTodayActive = (newVal: boolean) => {
+    setOnlyTodayActive(newVal);
+    localStorage.setItem('mi_cafecito_only_today_active', String(newVal));
+  };
+
+  const getCustomGreeting = (name: string, folio: string, label: string) => {
+    let text = bdayTemplate;
+    text = text.replace(/{nombre}/g, name);
+    text = text.replace(/{folio}/g, folio);
+    text = text.replace(/{fecha}/g, label);
+    return text;
+  };
 
   // Access key logic for "Claves y Registros" (required password: FIELES)
   const [gestorUnlockCode, setGestorUnlockCode] = useState('');
@@ -1421,6 +1449,93 @@ export default function MerchantReportsTabPanel({
             <h3 className={`text-2xl font-serif font-black ${met.color} mt-1.5`}>{met.value}</h3>
           </div>
         ))}
+      </div>
+
+      {/* ⚙ PLANTILLA DE FELICITACIÓN DE CUMPLEAÑOS & AUTOMATIZACIÓN DE WHATSAPP */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 border-b border-slate-150 pb-3">
+          <span className="p-2 bg-[#149b8f]/5 text-[#149b8f] rounded-xl flex items-center justify-center">
+            <Gift size={20} />
+          </span>
+          <div>
+            <h4 className="font-serif font-black text-slate-900 text-sm">
+              Plantilla de Felicitación de Cumpleaños & Automatización de WhatsApp
+            </h4>
+            <p className="text-[10px] text-slate-400 font-sans uppercase tracking-[0.05em] font-bold">
+              Configurador de Campañas de Cumpleaños
+            </p>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-500 leading-relaxed">
+          Diseña la redacción para enviar por WhatsApp o copiar al portapapeles en la sección de Cumpleaños. El sistema sustituirá automáticamente las variables <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;nombre&#125;</code>, <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;fecha&#125;</code> y <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;folio&#125;</code> con los datos reales de cada socio.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Editor block */}
+          <div className="space-y-3 text-left">
+            <label className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider block">Redacción del Mensaje</label>
+            <textarea
+              className="w-full text-xs font-sans text-slate-700 border border-slate-250 rounded-xl p-3.5 focus:outline-none focus:ring-2 focus:ring-[#149b8f]/50 focus:border-[#149b8f] min-h-[110px]"
+              value={bdayTemplate}
+              onChange={(e) => handleUpdateTemplate(e.target.value)}
+              placeholder="Escribe el mensaje de felicitación de cumpleaños aquí..."
+            />
+            {/* Quick cheat-sheet buttons */}
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              <span className="text-[10px] text-slate-400 font-bold self-center">Insertar:</span>
+              <button
+                type="button"
+                onClick={() => handleUpdateTemplate(bdayTemplate + ' {nombre}')}
+                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                &#123;nombre&#125;
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdateTemplate(bdayTemplate + ' {fecha}')}
+                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                &#123;fecha&#125;
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdateTemplate(bdayTemplate + ' {folio}')}
+                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                &#123;folio&#125;
+              </button>
+            </div>
+          </div>
+
+          {/* Right Preview Column which also contains constraints */}
+          <div className="space-y-4 flex flex-col justify-between">
+            {/* Live mockup preview display */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 relative space-y-2.5 text-left">
+              <span className="absolute top-2.5 right-2.5 text-[8px] uppercase tracking-widest font-black text-slate-400 font-sans">Vista Previa</span>
+              <p className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider">Así se enviará el mensaje:</p>
+              <div className="bg-white border border-slate-150 p-3 rounded-xl text-xs text-slate-600 leading-relaxed max-h-[110px] overflow-y-auto font-sans shadow-sm">
+                {getCustomGreeting("Sofía García", "1087", "10 de Junio")}
+              </div>
+            </div>
+
+            {/* Checkbox rule constraints: Only enable for birthdays on the current day */}
+            <label className="flex items-start gap-3 bg-[#149b8f]/5 rounded-2xl border border-[#149b8f]/10 p-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={onlyTodayActive}
+                onChange={(e) => handleUpdateOnlyTodayActive(e.target.checked)}
+                className="mt-1 accent-[#149b8f]"
+              />
+              <div className="text-left">
+                <span className="text-xs font-black text-slate-800 block">Solo activar botones el día del cumpleaños</span>
+                <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
+                  Si se activa (recomendado), los botones de <strong>Copiar</strong> y de <strong>WhatsApp</strong> en la sección de cumpleaños se habilitarán *exclusivamente* para los socios cuya fecha de cumpleaños sea el día de hoy. Para el resto de los días, se habilitará un candado de seguridad preventiva.
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Period Select Filter Tab Bar */}

@@ -7,7 +7,17 @@ let audioCtx: AudioContext | null = null;
 function getAudioContext() {
   if (typeof window === 'undefined') return null;
   if (!audioCtx) {
-    audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (typeof AudioCtxClass === 'function') {
+        audioCtx = new AudioCtxClass();
+      } else {
+        console.warn('AudioContext is not a constructible constructor in this environment.');
+      }
+    } catch (e) {
+      console.warn('Failed to initialize AudioContext due to construction restriction:', e);
+      return null;
+    }
   }
   return audioCtx;
 }
