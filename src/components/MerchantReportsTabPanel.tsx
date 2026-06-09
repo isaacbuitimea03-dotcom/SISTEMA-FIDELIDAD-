@@ -689,7 +689,7 @@ export default function MerchantReportsTabPanel({
           <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
             <button
               onClick={() => {
-                const link = window.location.origin + '/fidelidad';
+                const link = window.location.origin + '/#fidelidad';
                 navigator.clipboard.writeText(link);
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
@@ -710,7 +710,7 @@ export default function MerchantReportsTabPanel({
             </button>
 
             <a
-              href="/fidelidad"
+              href="/#fidelidad"
               target="_blank"
               rel="noopener noreferrer"
               className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
@@ -723,7 +723,7 @@ export default function MerchantReportsTabPanel({
 
         {/* Input box displaying URL */}
         <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
-          <span className="truncate select-all">{window.location.origin + '/fidelidad'}</span>
+          <span className="truncate select-all">{window.location.origin + '/#fidelidad'}</span>
           <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
             URL ACTIVO
           </span>

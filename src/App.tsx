@@ -918,12 +918,12 @@ export default function App() {
         <span className="text-slate-750 font-bold font-sans">|</span>
         <button
           onClick={() => {
-            window.history.pushState({}, '', '/fidelidad');
+            window.history.pushState({}, '', '/#fidelidad');
             setIsClientMode(true);
           }}
           className={`hover:text-white transition cursor-pointer font-extrabold ${isClientMode ? 'text-[#2bbba9]' : ''}`}
         >
-          /fidelidad (Portal Cliente)
+          /#fidelidad (Portal Cliente)
         </button>
       </div>
 
