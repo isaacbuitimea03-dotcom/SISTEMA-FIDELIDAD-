@@ -526,30 +526,6 @@ export default function App() {
         }
         return c;
       }));
-
-      // Create log
-      const logRecord: ActivityLog = {
-        id: 'log_' + Date.now(),
-        type: 'reward_unlocked',
-        amount: 0,
-        title: `${targetSurvey.reward} (Premio Encuesta)`,
-        description: `Socio ${clientPortalSession.name} contestó la encuesta de satisfacción "${targetSurvey.title}".`,
-        timestamp: new Date().toISOString(),
-        customerFolio: clientPortalSession.folio
-      };
-      setLogs(prev => [logRecord, ...prev]);
-    } else {
-      // Just log without voucher
-      const logRecord: ActivityLog = {
-        id: 'log_' + Date.now(),
-        type: 'stamp_added',
-        amount: 0,
-        title: `Encuesta Contestada: ${targetSurvey.title}`,
-        description: `Socio ${clientPortalSession.name} completó la encuesta sin reclamo de cupón.`,
-        timestamp: new Date().toISOString(),
-        customerFolio: clientPortalSession.folio
-      };
-      setLogs(prev => [logRecord, ...prev]);
     }
   };
 
