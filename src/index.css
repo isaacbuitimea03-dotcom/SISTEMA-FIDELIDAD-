@@ -28,3 +28,19 @@
 .perspective-origin-center {
   perspective-origin: center;
 }
+
+/* Fix mobile shaking, rubber-banding, and horizontal layout shifts */
+html, body {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  position: relative;
+  touch-action: pan-y;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}

@@ -1123,11 +1123,11 @@ export default function App() {
     : null;
 
   return (
-    <div className="min-h-screen bg-[#F4F7F6] text-slate-800 flex flex-col relative font-sans selection:bg-[#149b8f]/20 selection:text-[#149b8f]">
+    <div className="min-h-screen bg-[#F4F7F6] text-slate-800 flex flex-col relative font-sans selection:bg-[#149b8f]/20 selection:text-[#149b8f] w-full max-w-full overflow-x-hidden touch-pan-y">
       
       {isClientMode ? (
         /* ==================== CLIENT STANDALONE WEBSITE (Matching user photo exactly) ==================== */
-        <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10">
+        <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10 w-full max-w-full overflow-x-hidden touch-pan-y">
           
           <div className="max-w-md w-full flex-grow flex flex-col justify-center items-center py-6">
             <AnimatePresence mode="wait">

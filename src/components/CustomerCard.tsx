@@ -134,7 +134,8 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
           {/* CARD FRONT */}
           <div 
             onClick={handleToggleFlip}
-            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.frontGradient} text-white shadow-xl border flex flex-col justify-between backface-hidden transition-all duration-300`}
+            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.frontGradient} text-white shadow-xl border flex flex-col justify-between backface-hidden transition-all duration-300 ${isFlipped ? 'opacity-0 pointer-events-none z-0' : 'opacity-100 z-10'}`}
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
           >
             {/* Card Glare & Pattern Overlay */}
             <div className="absolute inset-x-0 top-0 h-[45%] bg-gradient-to-b from-white/10 to-transparent rounded-t-3xl pointer-events-none" />
@@ -210,7 +211,8 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
           {/* CARD BACK */}
           <div 
             onClick={handleToggleFlip}
-            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.backGradient} text-white shadow-xl border flex flex-col justify-between rotate-y-180 backface-hidden transition-all duration-300`}
+            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.backGradient} text-white shadow-xl border flex flex-col justify-between rotate-y-180 backface-hidden transition-all duration-300 ${isFlipped ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
           >
             {/* Design header */}
             <div className="flex justify-between items-center border-b border-white/10 pb-2 flex-wrap gap-1 leading-none text-left">
