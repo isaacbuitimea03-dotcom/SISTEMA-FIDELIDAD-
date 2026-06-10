@@ -280,6 +280,7 @@ export default function App() {
 
   // Editing Client States
   const [editingCustomer, setEditingCustomer] = useState<RegisteredCustomer | null>(null);
+  const [editFolio, setEditFolio] = useState('');
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -670,6 +671,7 @@ export default function App() {
   // INITIALIZE PROCESSES FOR EDIT & CONTROL ACTIONS
   const handleStartEditCustomer = (customer: RegisteredCustomer) => {
     setEditingCustomer(customer);
+    setEditFolio(customer.folio);
     setEditName(customer.name);
     setEditPhone(customer.phone);
     setEditEmail(customer.email);
@@ -691,8 +693,11 @@ export default function App() {
     e.preventDefault();
     if (!revertingCustomerFolio) return;
 
-    const matchedClerk = CLERKS.find(c => c.pin === revertPinInput) || 
-                         (revertPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+    const normalizedInput = revertPinInput.trim().toLowerCase();
+    const matchedClerk = CLERKS.find(c => 
+      c.pin.toLowerCase() === normalizedInput || 
+      c.code.toLowerCase() === normalizedInput
+    ) || (normalizedInput === 'bistro2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
     if (!matchedClerk) {
       setRevertPinError('La clave PIN de seguridad ingresada es incorrecta o inválida.');
@@ -720,13 +725,21 @@ export default function App() {
     e.preventDefault();
     if (!editingCustomer) return;
 
+    if (!editFolio || !editFolio.trim()) {
+      setEditError('El Folio de la Tarjeta es obligatorio.');
+      return;
+    }
+
     if (!editName || !editPhone || !editBirthday) {
       setEditError('Todos los campos requeridos (*) deben completarse.');
       return;
     }
 
-    const matchedClerk = CLERKS.find(c => c.pin === editPinInput) || 
-                         (editPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+    const normalizedInput = editPinInput.trim().toLowerCase();
+    const matchedClerk = CLERKS.find(c => 
+      c.pin.toLowerCase() === normalizedInput || 
+      c.code.toLowerCase() === normalizedInput
+    ) || (normalizedInput === 'bistro2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
     if (!matchedClerk) {
       setEditError('La clave PIN de seguridad ingresada es incorrecta.');
@@ -738,32 +751,36 @@ export default function App() {
       id: 'log_' + Date.now(),
       type: 'stamp_added',
       amount: stampDiff,
-      title: `Edición de Cliente #${editingCustomer.folio}`,
-      description: `Modificación de datos del socio ${editingCustomer.name}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
+      title: `Edición de Cliente #${editFolio}`,
+      description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${editFolio}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
       timestamp: new Date().toISOString(),
       clerkName: matchedClerk.name,
       clerkCode: matchedClerk.code,
-      customerFolio: editingCustomer.folio
+      customerFolio: editFolio
     };
 
     setLogs(prevL => [logRecord, ...prevL]);
 
-    // Update state
-    setConsumers(prev => prev.map(c => {
-      if (c.folio === editingCustomer.folio) {
-        return {
-          ...c,
-          name: editName,
-          phone: editPhone,
-          email: editEmail,
-          birthday: editBirthday,
-          currentStamps: editCurrentStamps
-        };
-      }
-      return c;
-    }));
+    // Update state (replaces any other customer with that folio to avoid duplication)
+    setConsumers(prev => {
+      const filtered = prev.filter(c => c.folio !== editFolio || c.folio === editingCustomer.folio);
+      return filtered.map(c => {
+        if (c.folio === editingCustomer.folio) {
+          return {
+            ...c,
+            folio: editFolio,
+            name: editName,
+            phone: editPhone,
+            email: editEmail,
+            birthday: editBirthday,
+            currentStamps: editCurrentStamps
+          };
+        }
+        return c;
+      });
+    });
 
-    setSystemBannerAlert(`¡Tarjeta #${editingCustomer.folio} editada con éxito por ${matchedClerk.name}!`);
+    setSystemBannerAlert(`¡Tarjeta #${editFolio} editada con éxito por ${matchedClerk.name}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
 
     // Reset editing state parameters
@@ -845,8 +862,11 @@ export default function App() {
     e.preventDefault();
     if (!deletingCustomerFolio) return;
 
-    const matchedClerk = CLERKS.find(c => c.pin === deletePinInput) || 
-                         (deletePinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+    const normalizedInput = deletePinInput.trim().toLowerCase();
+    const matchedClerk = CLERKS.find(c => 
+      c.pin.toLowerCase() === normalizedInput || 
+      c.code.toLowerCase() === normalizedInput
+    ) || (normalizedInput === 'bistro2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
     if (!matchedClerk) {
       setDeletePinError('La clave PIN de seguridad ingresada es incorrecta.');
@@ -1224,7 +1244,7 @@ export default function App() {
               <div>
                 <span className="text-[9px] font-black tracking-widest text-[#149b8f] uppercase font-sans">Acción Controlada</span>
                 <h3 className="text-lg font-serif font-black text-slate-950">Editar Datos del Socio</h3>
-                <p className="text-xs text-slate-400">Modificando la cuenta vinculada al folio físico de tarjeta: <strong className="text-[#149b8f]">#{editingCustomer.folio}</strong></p>
+                <p className="text-xs text-slate-400">Modificando la cuenta del socio <strong className="text-[#149b8f]">{editingCustomer.name}</strong></p>
               </div>
 
               {editError && (
@@ -1234,6 +1254,32 @@ export default function App() {
               )}
 
               <form onSubmit={handleUpdateCustomer} className="space-y-3.5 text-xs font-sans text-left">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-slate-500 font-bold uppercase tracking-wider block">Folio de Tarjeta *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editFolio}
+                      onChange={(e) => setEditFolio(e.target.value)}
+                      className="w-full bg-slate-50 hover:bg-slate-100/50 border border-slate-200 focus:bg-white focus:border-[#149b8f] rounded-xl px-4 py-2.5 outline-none transition-all font-mono font-bold text-center text-xs text-[#149b8f]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-slate-500 font-bold uppercase tracking-wider block">Sello actual (Tazas) *</label>
+                    <select
+                      value={editCurrentStamps}
+                      onChange={(e) => setEditCurrentStamps(parseInt(e.target.value))}
+                      className="w-full bg-slate-50 hover:bg-slate-100/50 border border-slate-200 focus:bg-white focus:border-[#149b8f] rounded-xl px-4 py-2 text-xs font-bold font-mono text-[#149b8f]"
+                    >
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map(st => (
+                        <option key={st} value={st}>{st} / 8 tazas</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-slate-500 font-bold uppercase tracking-wider block">Nombre Completo *</label>
                   <input
@@ -1270,29 +1316,14 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold uppercase tracking-wider block">Correo Electrónico</label>
-                    <input
-                      type="email"
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      className="w-full bg-slate-50 hover:bg-slate-100/50 border border-slate-200 focus:bg-white focus:border-[#149b8f] rounded-xl px-4 py-2.5 outline-none transition-all text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold uppercase tracking-wider block">Sello actual (Tazas) *</label>
-                    <select
-                      value={editCurrentStamps}
-                      onChange={(e) => setEditCurrentStamps(parseInt(e.target.value))}
-                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 font-bold font-mono text-[#149b8f]"
-                    >
-                      {[0, 1, 2, 3, 4, 5, 6, 7].map(st => (
-                        <option key={st} value={st}>{st} / 8 tazas acumuladas</option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold uppercase tracking-wider block">Correo Electrónico</label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full bg-slate-50 hover:bg-slate-100/50 border border-slate-200 focus:bg-white focus:border-[#149b8f] rounded-xl px-4 py-2.5 outline-none transition-all text-xs"
+                  />
                 </div>
 
                 {/* SIGNATURE SAFEGUARD */}

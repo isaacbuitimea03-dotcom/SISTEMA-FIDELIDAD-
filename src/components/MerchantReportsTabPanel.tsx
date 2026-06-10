@@ -467,7 +467,21 @@ export default function MerchantReportsTabPanel({
 
   // Filter logs by period
   const getFilteredLogs = () => {
-    let filtered = [...logs];
+    // Exclude any logs that refer to surveys/encuestas
+    let filtered = logs.filter(l => {
+      const titleLower = (l.title || '').toLowerCase();
+      const descLower = (l.description || '').toLowerCase();
+      const typeLower = (l.type || '').toLowerCase();
+      return (
+        !titleLower.includes('encuesta') &&
+        !descLower.includes('encuesta') &&
+        !titleLower.includes('survey') &&
+        !descLower.includes('survey') &&
+        !titleLower.includes('voto') &&
+        !descLower.includes('voto') &&
+        !typeLower.includes('survey')
+      );
+    });
     const today = new Date();
     
     if (filterPeriod === 'semana') {
@@ -1440,9 +1454,9 @@ export default function MerchantReportsTabPanel({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Clientes Registrados', value: customers.length, color: 'text-[#149b8f]' },
-          { label: 'Visitas Totales', value: visits.length > 0 ? visits.length : 124, color: 'text-slate-800' },
-          { label: 'Premios Otorgados', value: customers.reduce((sum, c) => sum + (c.unlockedVouchers?.length || 0), 0) || 12, color: 'text-rose-600' },
-          { label: 'Promedio Visitas/Cliente', value: ( (visits.length > 0 ? visits.length : 124) / customers.length).toFixed(1), color: 'text-teal-700' }
+          { label: 'Visitas Totales', value: visits.length, color: 'text-slate-800' },
+          { label: 'Premios Otorgados', value: customers.reduce((sum, c) => sum + (c.unlockedVouchers?.length || 0), 0), color: 'text-rose-600' },
+          { label: 'Promedio Visitas/Cliente', value: customers.length > 0 ? (visits.length / customers.length).toFixed(1) : '0.0', color: 'text-teal-700' }
         ].map((met, idx) => (
           <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <p className="text-[10px] uppercase font-sans text-slate-400 font-bold tracking-wider">{met.label}</p>
