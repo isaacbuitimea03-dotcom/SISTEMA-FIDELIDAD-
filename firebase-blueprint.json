@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "RegisteredCustomer": {
+      "title": "RegisteredCustomer",
+      "description": "A loyalty program member profile",
+      "type": "object",
+      "properties": {
+        "folio": { "type": "string", "description": "The card serial/folio number" },
+        "name": { "type": "string", "description": "Member complete name" },
+        "phone": { "type": "string", "description": "Member contact phone" },
+        "email": { "type": "string", "description": "Member email" },
+        "birthday": { "type": "string", "description": "Member birthday in YYYY-MM-DD" },
+        "currentStamps": { "type": "number", "description": "Current number of stamps accrued (0-8)" },
+        "totalStampsEarned": { "type": "number", "description": "Lifetime coffee stamps earned" },
+        "points": { "type": "number", "description": "Total loyalty points accrued" },
+        "unlockedVouchers": { "type": "array", "description": "Vouchers available or redeemed by this user" },
+        "visitsHistory": { "type": "array", "description": "A historic chronological record of stamps credited" }
+      },
+      "required": ["folio", "name", "phone", "email", "birthday", "currentStamps", "totalStampsEarned", "points"]
+    },
+    "VisitRecord": {
+      "title": "VisitRecord",
+      "description": "Chronological history of a customer's program stamp credit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "stampsAdded": { "type": "number" },
+        "clerkName": { "type": "string" },
+        "clerkCode": { "type": "string" },
+        "customerFolio": { "type": "string" },
+        "customerName": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "stampsAdded", "clerkName", "clerkCode", "customerFolio", "customerName"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "A dynamic operations log showing actions taken by coordinators and staff",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["stamp_added", "reward_unlocked", "voucher_redeemed"] },
+        "amount": { "type": "number" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "clerkName": { "type": "string" },
+        "clerkCode": { "type": "string" },
+        "customerFolio": { "type": "string" }
+      },
+      "required": ["id", "type", "amount", "title", "description", "timestamp"]
+    },
+    "MerchantConfig": {
+      "title": "MerchantConfig",
+      "description": "App configuration parameters of the shop",
+      "type": "object",
+      "properties": {
+        "pin": { "type": "string" },
+        "shopName": { "type": "string" },
+        "brandColor": { "type": "string" },
+        "stampsRequired": { "type": "number" },
+        "mainRewardTitle": { "type": "string" }
+      },
+      "required": ["pin", "shopName", "brandColor", "stampsRequired", "mainRewardTitle"]
+    },
+    "Survey": {
+      "title": "Survey",
+      "description": "A customer satisfaction poll or campaign published by the merchant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "isCampaign": { "type": "boolean" },
+        "questions": { "type": "array" },
+        "reward": { "type": "string" },
+        "active": { "type": "boolean" },
+        "submissionsCount": { "type": "number" }
+      },
+      "required": ["id", "title", "isCampaign", "questions", "reward", "active", "submissionsCount"]
+    },
+    "SurveyAnswer": {
+      "title": "SurveyAnswer",
+      "description": "A member's survey answer sheet",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "surveyId": { "type": "string" },
+        "surveyTitle": { "type": "string" },
+        "customerFolio": { "type": "string" },
+        "customerName": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "answers": { "type": "array" }
+      },
+      "required": ["id", "surveyId", "surveyTitle", "customerFolio", "customerName", "timestamp", "answers"]
+    },
+    "Clerk": {
+      "title": "Clerk",
+      "description": "An authorized personnel or barista",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "label": { "type": "string" },
+        "name": { "type": "string" },
+        "pin": { "type": "string" }
+      },
+      "required": ["code", "label", "name", "pin"]
+    }
+  },
+  "firestore": {
+    "customers": {
+      "schema": "RegisteredCustomer",
+      "description": "Registered fidelity customers/members"
+    },
+    "visits": {
+      "schema": "VisitRecord",
+      "description": "Stamps history dynamic register"
+    },
+    "logs": {
+      "schema": "ActivityLog",
+      "description": "System-wide and clerk operations Audit Trail"
+    },
+    "config": {
+      "schema": "MerchantConfig",
+      "description": "Bistro business parameters"
+    },
+    "surveys": {
+      "schema": "Survey",
+      "description": "Surveys and campaign questionnaire sheets"
+    },
+    "surveyAnswers": {
+      "schema": "SurveyAnswer",
+      "description": "Answer collections sent by consumers"
+    },
+    "clerks": {
+      "schema": "Clerk",
+      "description": "Merchant-facing list of active clerks"
+    }
+  }
+}

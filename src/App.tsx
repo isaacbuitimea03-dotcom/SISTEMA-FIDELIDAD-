@@ -25,6 +25,13 @@ import CustomerCard from './components/CustomerCard';
 import ClientSurveyWizard from './components/ClientSurveyWizard';
 import { MiCafecitoLogo } from './components/MiCafecitoLogo';
 
+import { 
+  dbSaveCustomer, dbDeleteCustomer, dbSaveVisit, dbSaveLog, dbSaveConfig,
+  dbSaveSurvey, dbSaveAnswer, dbSaveClerk, dbDeleteClerk,
+  subscribeToCollection, testConnection, db
+} from './utils/firebase';
+import { getDocs, collection, doc, deleteDoc } from 'firebase/firestore';
+
 const INITIAL_SURVEYS: Survey[] = [];
 
 const INITIAL_SURVEY_ANSWERS: SurveyAnswer[] = [];
@@ -197,6 +204,298 @@ export default function App() {
     }
     return INITIAL_SURVEY_ANSWERS;
   });
+
+  const [isFirebaseLoaded, setIsFirebaseLoaded] = useState(false);
+
+  // Firestore real-time initialization and initial synchronization
+  useEffect(() => {
+    testConnection();
+
+    const initSync = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'customers'));
+        if (querySnapshot.empty) {
+          console.log('Firebase Firestore is empty. Seeding local state to the cloud...');
+          
+          for (const customer of consumers) {
+            await dbSaveCustomer(customer);
+          }
+          for (const visit of visits) {
+            await dbSaveVisit(visit);
+          }
+          for (const log of logs) {
+            await dbSaveLog(log);
+          }
+          await dbSaveConfig(config);
+          for (const survey of surveys) {
+            await dbSaveSurvey(survey);
+          }
+          for (const answer of surveyAnswers) {
+            await dbSaveAnswer(answer);
+          }
+          for (const clerk of CLERKS) {
+            await dbSaveClerk(clerk);
+          }
+          console.log('Firebase Firestore successfully seeded!');
+        }
+      } catch (err) {
+        console.error('Initial Firebase sync or seeding failed:', err);
+      }
+    };
+
+    initSync().then(() => {
+      const unsubCustomers = subscribeToCollection<RegisteredCustomer>('customers', (data) => {
+        if (data && data.length > 0) {
+          const sorted = [...data].sort((a, b) => a.folio.localeCompare(b.folio));
+          setConsumers(sorted);
+        }
+      });
+
+      const unsubVisits = subscribeToCollection<VisitRecord>('visits', (data) => {
+        if (data) {
+          const sorted = [...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setVisits(sorted);
+        }
+      });
+
+      const unsubLogs = subscribeToCollection<ActivityLog>('logs', (data) => {
+        if (data) {
+          const sorted = [...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setLogs(sorted);
+        }
+      });
+
+      const unsubConfig = subscribeToCollection<MerchantConfig>('config', (data) => {
+        if (data && data.length > 0) {
+          const mConfig = data[0];
+          if (mConfig) setConfig(mConfig);
+        }
+      });
+
+      const unsubSurveys = subscribeToCollection<Survey>('surveys', (data) => {
+        if (data) {
+          setSurveys(data);
+        }
+      });
+
+      const unsubAnswers = subscribeToCollection<SurveyAnswer>('surveyAnswers', (data) => {
+        if (data) {
+          setSurveyAnswers(data);
+        }
+      });
+
+      const unsubClerks = subscribeToCollection<Clerk>('clerks', (data) => {
+        if (data && data.length > 0) {
+          setCLERKS(data);
+        }
+      });
+
+      setIsFirebaseLoaded(true);
+
+      return () => {
+        unsubCustomers();
+        unsubVisits();
+        unsubLogs();
+        unsubConfig();
+        unsubSurveys();
+        unsubAnswers();
+        unsubClerks();
+      };
+    });
+  }, []);
+
+  // Sync wrappers that intercept state changes and push them to Firestore
+  const syncSetConsumers = async (updater: React.SetStateAction<RegisteredCustomer[]>) => {
+    let nextVal: RegisteredCustomer[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(consumers);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(consumers.map(c => c.folio));
+    const newKeys = new Set(nextVal.map(c => c.folio));
+
+    for (const c of consumers) {
+      if (!newKeys.has(c.folio)) {
+        try {
+          await dbDeleteCustomer(c.folio);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const c of nextVal) {
+      try {
+        await dbSaveCustomer(c);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setConsumers(nextVal);
+  };
+
+  const syncSetVisits = async (updater: React.SetStateAction<VisitRecord[]>) => {
+    let nextVal: VisitRecord[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(visits);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(visits.map(v => v.id));
+    const newKeys = new Set(nextVal.map(v => v.id));
+
+    for (const v of visits) {
+      if (!newKeys.has(v.id)) {
+        try {
+          await deleteDoc(doc(db, 'visits', v.id));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const v of nextVal) {
+      try {
+        await dbSaveVisit(v);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setVisits(nextVal);
+  };
+
+  const syncSetLogs = async (updater: React.SetStateAction<ActivityLog[]>) => {
+    let nextVal: ActivityLog[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(logs);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(logs.map(l => l.id));
+    const newKeys = new Set(nextVal.map(l => l.id));
+
+    for (const l of logs) {
+      if (!newKeys.has(l.id)) {
+        try {
+          await deleteDoc(doc(db, 'logs', l.id));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const l of nextVal) {
+      try {
+        await dbSaveLog(l);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setLogs(nextVal);
+  };
+
+  const syncSetSurveys = async (updater: React.SetStateAction<Survey[]>) => {
+    let nextVal: Survey[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(surveys);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(surveys.map(s => s.id));
+    const newKeys = new Set(nextVal.map(s => s.id));
+
+    for (const s of surveys) {
+      if (!newKeys.has(s.id)) {
+        try {
+          await deleteDoc(doc(db, 'surveys', s.id));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const s of nextVal) {
+      try {
+        await dbSaveSurvey(s);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setSurveys(nextVal);
+  };
+
+  const syncSetCLERKS = async (updater: React.SetStateAction<Clerk[]>) => {
+    let nextVal: Clerk[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(CLERKS);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(CLERKS.map(c => c.code));
+    const newKeys = new Set(nextVal.map(c => c.code));
+
+    for (const c of CLERKS) {
+      if (!newKeys.has(c.code)) {
+        try {
+          await dbDeleteClerk(c.code);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const c of nextVal) {
+      try {
+        await dbSaveClerk(c);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setCLERKS(nextVal);
+  };
+
+  const syncSetSurveyAnswers = async (updater: React.SetStateAction<SurveyAnswer[]>) => {
+    let nextVal: SurveyAnswer[];
+    if (typeof updater === 'function') {
+      nextVal = (updater as Function)(surveyAnswers);
+    } else {
+      nextVal = updater;
+    }
+
+    const oldKeys = new Set(surveyAnswers.map(a => a.id));
+    const newKeys = new Set(nextVal.map(a => a.id));
+
+    for (const a of surveyAnswers) {
+      if (!newKeys.has(a.id)) {
+        try {
+          await deleteDoc(doc(db, 'surveyAnswers', a.id));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    for (const a of nextVal) {
+      try {
+        await dbSaveAnswer(a);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setSurveyAnswers(nextVal);
+  };
 
   // Sync back to local storage
   useEffect(() => {
@@ -503,13 +802,13 @@ export default function App() {
     };
 
     // 2. Append to survey answers
-    setSurveyAnswers(prev => [newAnswer, ...prev]);
+    syncSetSurveyAnswers(prev => [newAnswer, ...prev]);
 
     // 3. Mark as answered to bypass check for next render
     localStorage.setItem(`answered_survey_${clientPortalSession.folio}_${surveyId}`, 'true');
 
     // 4. Increment submissionCount
-    setSurveys(prev => prev.map(s => s.id === surveyId ? { ...s, submissionsCount: s.submissionsCount + 1 } : s));
+    syncSetSurveys(prev => prev.map(s => s.id === surveyId ? { ...s, submissionsCount: s.submissionsCount + 1 } : s));
 
     // 5. Gift Voucher Reward if applicable
     if (targetSurvey.reward && targetSurvey.reward !== 'Sin recompensa') {
@@ -523,7 +822,7 @@ export default function App() {
         unlockedAt: new Date().toISOString()
       };
 
-      setConsumers(prev => prev.map(c => {
+      syncSetConsumers(prev => prev.map(c => {
         if (c.folio === clientPortalSession.folio) {
           const updatedVouchers = [...(c.unlockedVouchers || []), newVoucher];
           // Sync session
@@ -591,8 +890,8 @@ export default function App() {
       customerFolio: targetCustomer.folio
     };
 
-    setVisits(prevV => [record, ...prevV]);
-    setLogs(prevL => [logRecord, ...prevL]);
+    syncSetVisits(prevV => [record, ...prevV]);
+    syncSetLogs(prevL => [logRecord, ...prevL]);
 
     if (alertTrigger) {
       setCongratsRewardTitle(config.mainRewardTitle);
@@ -601,7 +900,7 @@ export default function App() {
     setSystemBannerAlert(`¡Visita registrada con éxito por ${clerkName}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
 
-    setConsumers(prev => {
+    syncSetConsumers(prev => {
       return prev.map(c => {
         if (c.folio === stampingCustomerFolio) {
           return {
@@ -651,12 +950,12 @@ export default function App() {
       customerFolio: targetCustomer.folio
     };
 
-    setLogs(prevL => [logRecord, ...prevL]);
+    syncSetLogs(prevL => [logRecord, ...prevL]);
 
     setSystemBannerAlert(`Se descontó una taza de la cuenta de ${targetCustomer.name}`);
     setTimeout(() => setSystemBannerAlert(null), 3500);
 
-    setConsumers(prev => prev.map(c => {
+    syncSetConsumers(prev => prev.map(c => {
       if (c.folio === customerFolio) {
         return {
           ...c,
@@ -759,10 +1058,10 @@ export default function App() {
       customerFolio: editFolio
     };
 
-    setLogs(prevL => [logRecord, ...prevL]);
+    syncSetLogs(prevL => [logRecord, ...prevL]);
 
     // Update state (replaces any other customer with that folio to avoid duplication)
-    setConsumers(prev => {
+    syncSetConsumers(prev => {
       const filtered = prev.filter(c => c.folio !== editFolio || c.folio === editingCustomer.folio);
       return filtered.map(c => {
         if (c.folio === editingCustomer.folio) {
@@ -828,7 +1127,7 @@ export default function App() {
       visitsHistory: []
     };
 
-    setConsumers(prev => [newCustomerObj, ...prev]);
+    syncSetConsumers(prev => [newCustomerObj, ...prev]);
 
     // Create registry activity log
     const logRecord: ActivityLog = {
@@ -842,7 +1141,7 @@ export default function App() {
       clerkCode: 'GER',
       customerFolio: regFolio
     };
-    setLogs(prevL => [logRecord, ...prevL]);
+    syncSetLogs(prevL => [logRecord, ...prevL]);
 
     // Reset Form
     setRegName('');
@@ -876,7 +1175,7 @@ export default function App() {
     const targetCustomer = consumers.find(c => c.folio === deletingCustomerFolio);
     const targetName = targetCustomer ? targetCustomer.name : 'Socio';
 
-    setConsumers(prev => prev.filter(c => c.folio !== deletingCustomerFolio));
+    syncSetConsumers(prev => prev.filter(c => c.folio !== deletingCustomerFolio));
     
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
@@ -889,7 +1188,7 @@ export default function App() {
       clerkCode: matchedClerk.code,
       customerFolio: deletingCustomerFolio
     };
-    setLogs(prevL => [logRecord, ...prevL]);
+    syncSetLogs(prevL => [logRecord, ...prevL]);
 
     setSystemBannerAlert(`La tarjeta #${deletingCustomerFolio} ha sido eliminada permanentemente.`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
@@ -1531,7 +1830,7 @@ export default function App() {
                 }}
                 config={config}
                 onReset={() => {
-                  setConsumers(prev => prev.map(c => {
+                  syncSetConsumers(prev => prev.map(c => {
                     if (c.folio === selectedOverlayCustomer.folio) {
                       return { ...c, currentStamps: 0, points: 0, unlockedVouchers: [] };
                     }
@@ -1551,7 +1850,7 @@ export default function App() {
                     clerkCode: 'GER',
                     customerFolio: selectedOverlayCustomer.folio
                   };
-                  setLogs(prevL => [logRecord, ...prevL]);
+                  syncSetLogs(prevL => [logRecord, ...prevL]);
                 }}
               />
 
@@ -2359,15 +2658,15 @@ export default function App() {
                 ) : (
                   <MerchantReportsTabPanel 
                     customers={consumers} 
-                    setCustomers={setConsumers}
+                    setCustomers={syncSetConsumers}
                     visits={visits} 
-                    setVisits={setVisits}
+                    setVisits={syncSetVisits}
                     logs={logs} 
-                    setLogs={setLogs}
+                    setLogs={syncSetLogs}
                     onResetAllData={() => {
                       if (confirm('¿Estás seguro de que deseas reiniciar todos los datos de visitas y logs históricos? Las cuentas de clientes permanecerán a salvo.')) {
-                        setVisits([]);
-                        setLogs([]);
+                        syncSetVisits([]);
+                        syncSetLogs([]);
                         
                         // Default Log
                         const logRecord: ActivityLog = {
@@ -2380,14 +2679,14 @@ export default function App() {
                           clerkName: 'Gerente',
                           clerkCode: 'GER'
                         };
-                        setLogs([logRecord]);
+                        syncSetLogs([logRecord]);
                       }
                     }}
                     surveys={surveys}
-                    setSurveys={setSurveys}
+                    setSurveys={syncSetSurveys}
                     surveyAnswers={surveyAnswers}
                     clerks={CLERKS}
-                    setClerks={setCLERKS}
+                    setClerks={syncSetCLERKS}
                   />
                 )}
               </div>
