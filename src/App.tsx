@@ -25,174 +25,9 @@ import CustomerCard from './components/CustomerCard';
 import ClientSurveyWizard from './components/ClientSurveyWizard';
 import { MiCafecitoLogo } from './components/MiCafecitoLogo';
 
-const INITIAL_SURVEYS: Survey[] = [
-  {
-    id: 'sv01',
-    title: 'Satisfacción del Café',
-    isCampaign: false,
-    questions: [
-      {
-        id: 'q1',
-        text: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?',
-        type: 'multiple',
-        options: ['Excelente sabor', 'Muy fuerte', 'Le falta cuerpo', 'No consumo café']
-      }
-    ],
-    question: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?',
-    options: ['Excelente sabor', 'Muy fuerte', 'Le falta cuerpo', 'No consumo café'],
-    reward: '10% de descuento',
-    active: true,
-    submissionsCount: 42
-  },
-  {
-    id: 'sv02',
-    title: 'Limpieza y Atención',
-    isCampaign: false,
-    questions: [
-      {
-        id: 'q2',
-        text: '¿Cómo evalúa el tiempo de espera por parte del barista?',
-        type: 'multiple',
-        options: ['Inmediato (<5 min)', 'Estándar (5-10 min)', 'Lento (>10 min)']
-      }
-    ],
-    question: '¿Cómo evalúa el tiempo de espera por parte del barista?',
-    options: ['Inmediato (<5 min)', 'Estándar (5-10 min)', 'Lento (>10 min)'],
-    reward: 'Café de cortesía',
-    active: true,
-    submissionsCount: 19
-  }
-];
+const INITIAL_SURVEYS: Survey[] = [];
 
-const INITIAL_SURVEY_ANSWERS: SurveyAnswer[] = [
-  {
-    id: 'sa_01', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '002', customerName: 'Dulce Escalante', timestamp: '2026-06-08T09:12:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_02', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '003', customerName: 'Arlett Zazueta', timestamp: '2026-06-08T09:44:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_03', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '005', customerName: 'Martha Alicia Angel Felix', timestamp: '2026-06-08T10:05:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_04', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '006', customerName: 'Ezequiel Alvarez', timestamp: '2026-06-08T10:30:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Muy fuerte' }]
-  },
-  {
-    id: 'sa_05', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '008', customerName: 'Perla Lopez Acuña', timestamp: '2026-06-08T11:15:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_06', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '010', customerName: 'LILIANA BELTRAN CARAVEO', timestamp: '2026-06-08T12:02:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_07', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '011', customerName: 'MANUEL QUINTERO', timestamp: '2026-06-08T14:40:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Muy fuerte' }]
-  },
-  {
-    id: 'sa_08', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '014', customerName: 'Marielos Mcpherson', timestamp: '2026-06-08T15:10:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_09', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '016', customerName: 'Claudia Villaseñor', timestamp: '2026-06-08T16:05:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Le falta cuerpo' }]
-  },
-  {
-    id: 'sa_10', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '018', customerName: 'Sheila Adriana Zavala Navarro', timestamp: '2026-06-08T17:15:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_15', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '022', customerName: 'Luz Maria Castro', timestamp: '2026-06-08T17:35:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_16', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '025', customerName: 'Tania Gpe. Zazueta V.', timestamp: '2026-06-08T18:10:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_11', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '020', customerName: 'Daniela Valenzuela', timestamp: '2026-06-08T18:30:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Excelente sabor' }]
-  },
-  {
-    id: 'sa_12', surveyId: 'sv01', surveyTitle: 'Satisfacción del Café',
-    customerFolio: '031', customerName: 'Raul Ramírez g', timestamp: '2026-06-08T19:05:00.000Z',
-    answers: [{ questionId: 'q1', questionText: '¿Qué le pareció la intensidad y sabor de nuestros granos de especialidad esta semana?', answerText: 'Le falta cuerpo' }]
-  },
-
-  // sv02
-  {
-    id: 'sa_51', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '002', customerName: 'Dulce Escalante', timestamp: '2026-06-08T09:15:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Inmediato (<5 min)' }]
-  },
-  {
-    id: 'sa_52', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '003', customerName: 'Arlett Zazueta', timestamp: '2026-06-08T09:46:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Estándar (5-10 min)' }]
-  },
-  {
-    id: 'sa_53', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '005', customerName: 'Martha Alicia Angel Felix', timestamp: '2026-06-08T10:08:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Inmediato (<5 min)' }]
-  },
-  {
-    id: 'sa_54', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '006', customerName: 'Ezequiel Alvarez', timestamp: '2026-06-08T10:33:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Estándar (5-10 min)' }]
-  },
-  {
-    id: 'sa_55', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '008', customerName: 'Perla Lopez Acuña', timestamp: '2026-06-08T11:18:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Lento (>10 min)' }]
-  },
-  {
-    id: 'sa_56', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '010', customerName: 'LILIANA BELTRAN CARAVEO', timestamp: '2026-06-08T12:05:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Inmediato (<5 min)' }]
-  },
-  {
-    id: 'sa_57', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '011', customerName: 'MANUEL QUINTERO', timestamp: '2026-06-08T14:44:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Estándar (5-10 min)' }]
-  },
-  {
-    id: 'sa_58', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '014', customerName: 'Marielos Mcpherson', timestamp: '2026-06-08T15:15:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Estándar (5-10 min)' }]
-  },
-  {
-    id: 'sa_59', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '016', customerName: 'Claudia Villaseñor', timestamp: '2026-06-08T16:10:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Lento (>10 min)' }]
-  },
-  {
-    id: 'sa_60', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '018', customerName: 'Sheila Adriana Zavala Navarro', timestamp: '2026-06-08T17:20:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Inmediato (<5 min)' }]
-  },
-  {
-    id: 'sa_61', surveyId: 'sv02', surveyTitle: 'Limpieza y Atención',
-    customerFolio: '030', customerName: 'Jessica Medina', timestamp: '2026-06-08T17:55:00.000Z',
-    answers: [{ questionId: 'q2', questionText: '¿Cómo evalúa el tiempo de espera por parte del barista?', answerText: 'Inmediato (<5 min)' }]
-  }
-];
+const INITIAL_SURVEY_ANSWERS: SurveyAnswer[] = [];
 
 
 export default function App() {
@@ -201,8 +36,8 @@ export default function App() {
   const VISITS_KEY = 'cafecito_loyalty_visits_v3';
   const LOGS_KEY = 'cafecito_loyalty_logs_v3';
   const APP_CONFIG_KEY = 'cafecito_loyalty_config_v3';
-  const SURVEYS_KEY = 'cafecito_loyalty_surveys_v3';
-  const ANSWERS_KEY = 'cafecito_loyalty_survey_answers_v3';
+  const SURVEYS_KEY = 'cafecito_loyalty_surveys_v4';
+  const ANSWERS_KEY = 'cafecito_loyalty_survey_answers_v4';
 
   // 1. Core State
   const [consumers, setConsumers] = useState<RegisteredCustomer[]>(() => {
