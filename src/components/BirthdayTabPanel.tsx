@@ -26,10 +26,10 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
     const birthMonth = parseInt(parts[1], 10) - 1;
     const birthDay = parseInt(parts[2], 10);
     
-    const today = new Date('2026-06-09T00:37:48Z'); // Today absolute mock date
-    const todayYear = today.getUTCFullYear();
-    const todayMonth = today.getUTCMonth();
-    const todayDay = today.getUTCDate();
+    const today = new Date(); // Today actual date
+    const todayYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+    const todayDay = today.getDate();
     const todayMidnight = new Date(Date.UTC(todayYear, todayMonth, todayDay));
     
     let bdayYear = todayYear;
@@ -98,7 +98,7 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
     window.open(url, '_blank');
   };
 
-  const currentMonthIdx = 5; // June based on 2026-06-09
+  const currentMonthIdx = new Date().getMonth(); // Dynamic current month index
 
   return (
     <div className="w-full space-y-5 text-left">

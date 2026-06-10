@@ -342,13 +342,21 @@ export default function App() {
   // Helper date formatter
   const [currentTimeFormatted, setCurrentTimeFormatted] = useState('');
   useEffect(() => {
-    const today = new Date('2026-06-09T00:37:48Z');
-    const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-    
-    const dayName = days[today.getDay()];
-    const mName = months[today.getMonth()];
-    setCurrentTimeFormatted(`${dayName}, ${today.getDate()} de ${mName} de ${today.getFullYear()} • 13:47`);
+    const updateTime = () => {
+      const today = new Date();
+      const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+      const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+      
+      const dayName = days[today.getDay()];
+      const mName = months[today.getMonth()];
+      const hours = String(today.getHours()).padStart(2, '0');
+      const minutes = String(today.getMinutes()).padStart(2, '0');
+      setCurrentTimeFormatted(`${dayName}, ${today.getDate()} de ${mName} de ${today.getFullYear()} • ${hours}:${minutes}`);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Compute stats sizes
@@ -359,10 +367,10 @@ export default function App() {
   // Calculate birthday stats dynamically
   const getBirthdaysThisWeekCount = () => {
     let weekCount = 0;
-    const today = new Date('2026-06-09T00:37:48Z');
-    const todayYear = today.getUTCFullYear();
-    const todayMonth = today.getUTCMonth();
-    const todayDay = today.getUTCDate();
+    const today = new Date();
+    const todayYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+    const todayDay = today.getDate();
     const todayMidnight = new Date(Date.UTC(todayYear, todayMonth, todayDay));
     
     consumers.forEach(c => {
@@ -390,7 +398,7 @@ export default function App() {
 
   const getBirthdaysThisMonthCount = () => {
     let monthCount = 0;
-    const targetMonth = 5; // June is index 5
+    const targetMonth = new Date().getMonth(); // Dynamic current month index
     consumers.forEach(c => {
       if (!c.birthday) return;
       const parts = c.birthday.split('-');
@@ -895,10 +903,10 @@ export default function App() {
   // Upcoming Birthdays list for Dashboard Display
   const getDashboardBirthdaysThisWeek = () => {
     const list: Array<{ customer: RegisteredCustomer; daysLeft: number; label: string }> = [];
-    const today = new Date('2026-06-09T00:37:48Z');
-    const todayYear = today.getUTCFullYear();
-    const todayMonth = today.getUTCMonth();
-    const todayDay = today.getUTCDate();
+    const today = new Date();
+    const todayYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+    const todayDay = today.getDate();
     const todayMidnight = new Date(Date.UTC(todayYear, todayMonth, todayDay));
     
     consumers.forEach(c => {

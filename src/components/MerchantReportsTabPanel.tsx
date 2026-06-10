@@ -468,7 +468,7 @@ export default function MerchantReportsTabPanel({
   // Filter logs by period
   const getFilteredLogs = () => {
     let filtered = [...logs];
-    const today = new Date('2026-06-09T00:37:48Z');
+    const today = new Date();
     
     if (filterPeriod === 'semana') {
       const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
