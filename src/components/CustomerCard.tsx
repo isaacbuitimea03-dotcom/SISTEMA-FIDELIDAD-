@@ -210,7 +210,7 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
           {/* CARD BACK */}
           <div 
             onClick={handleToggleFlip}
-            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.backGradient} text-white shadow-xl border flex flex-col justify-between [transform:rotateY(180deg)] backface-hidden transition-all duration-300`}
+            className={`absolute inset-0 w-full h-full rounded-3xl p-5 bg-gradient-to-br ${currentTheme.backGradient} text-white shadow-xl border flex flex-col justify-between rotate-y-180 backface-hidden transition-all duration-300`}
           >
             {/* Design header */}
             <div className="flex justify-between items-center border-b border-white/10 pb-2 flex-wrap gap-1 leading-none text-left">
