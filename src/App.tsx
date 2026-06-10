@@ -327,6 +327,10 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        if (parsed.mainRewardTitle === 'Café o Bebida Gratis') {
+          parsed.mainRewardTitle = '20% de Descuento';
+        }
+        parsed.stampsRequired = 8; // Guarantee 8 cups/stamps
         return parsed;
       } catch (e) {}
     }
