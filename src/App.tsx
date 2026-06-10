@@ -213,39 +213,184 @@ export default function App() {
 
     const initSync = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, 'customers'));
-        if (querySnapshot.empty) {
-          console.log('Firebase Firestore is empty. Seeding local state to the cloud...');
-          
-          for (const customer of consumers) {
-            await dbSaveCustomer(customer);
+        console.log('Starting intelligent two-way synchronization with Firebase Firestore...');
+
+        // 1. Fetch cloud snapshots
+        const [
+          cloudCustomersSnap,
+          cloudVisitsSnap,
+          cloudLogsSnap,
+          cloudConfigSnap,
+          cloudSurveysSnap,
+          cloudAnswersSnap,
+          cloudClerksSnap
+        ] = await Promise.all([
+          getDocs(collection(db, 'customers')),
+          getDocs(collection(db, 'visits')),
+          getDocs(collection(db, 'logs')),
+          getDocs(collection(db, 'config')),
+          getDocs(collection(db, 'surveys')),
+          getDocs(collection(db, 'surveyAnswers')),
+          getDocs(collection(db, 'clerks'))
+        ]);
+
+        const cloudCustomers = cloudCustomersSnap.docs.map(d => d.data() as RegisteredCustomer);
+        const cloudVisits = cloudVisitsSnap.docs.map(d => d.data() as VisitRecord);
+        const cloudLogs = cloudLogsSnap.docs.map(d => d.data() as ActivityLog);
+        const cloudConfigList = cloudConfigSnap.docs.map(d => d.data() as MerchantConfig);
+        const cloudSurveys = cloudSurveysSnap.docs.map(d => d.data() as Survey);
+        const cloudAnswers = cloudAnswersSnap.docs.map(d => d.data() as SurveyAnswer);
+        const cloudClerks = cloudClerksSnap.docs.map(d => d.data() as Clerk);
+
+        // 2. Perform safe multi-device merging
+
+        // Customers Merge
+        const mergedCustomersMap = new Map<string, RegisteredCustomer>();
+        cloudCustomers.forEach(c => mergedCustomersMap.set(c.folio, c));
+
+        for (const localC of consumers) {
+          const cloudC = mergedCustomersMap.get(localC.folio);
+          if (!cloudC) {
+            // Local customer registered on this phone/device offline or during permissions failure. Sync to cloud!
+            mergedCustomersMap.set(localC.folio, localC);
+            await dbSaveCustomer(localC);
+          } else {
+            // Exists on both. Merge history array and take the maximum accrued counters
+            const localHistory = localC.visitsHistory || [];
+            const cloudHistory = cloudC.visitsHistory || [];
+            const uniqueVisitIds = new Set<string>();
+            const mergedHistory: any[] = [];
+            
+            [...cloudHistory, ...localHistory].forEach(v => {
+              const vId = v.id || `${v.timestamp}_${v.stampsAdded}`;
+              if (!uniqueVisitIds.has(vId)) {
+                uniqueVisitIds.add(vId);
+                mergedHistory.push(v);
+              }
+            });
+
+            const localVouchers = localC.unlockedVouchers || [];
+            const cloudVouchers = cloudC.unlockedVouchers || [];
+            const uniqueVoucherIds = new Set<string>();
+            const mergedVouchers: any[] = [];
+            
+            [...cloudVouchers, ...localVouchers].forEach(v => {
+              if (!uniqueVoucherIds.has(v.id)) {
+                uniqueVoucherIds.add(v.id);
+                mergedVouchers.push(v);
+              }
+            });
+
+            const mergedC: RegisteredCustomer = {
+              folio: localC.folio,
+              name: localC.name || cloudC.name,
+              phone: localC.phone || cloudC.phone,
+              email: localC.email || cloudC.email,
+              birthday: localC.birthday || cloudC.birthday,
+              currentStamps: Math.max(localC.currentStamps, cloudC.currentStamps),
+              totalStampsEarned: Math.max(localC.totalStampsEarned, cloudC.totalStampsEarned),
+              points: Math.max(localC.points, cloudC.points),
+              unlockedVouchers: mergedVouchers,
+              visitsHistory: mergedHistory
+            };
+
+            // If there's a difference, update cloud document to aggregate state
+            if (
+              JSON.stringify(mergedC.visitsHistory) !== JSON.stringify(cloudC.visitsHistory) ||
+              mergedC.currentStamps !== cloudC.currentStamps ||
+              mergedC.points !== cloudC.points ||
+              mergedC.unlockedVouchers.length !== cloudC.unlockedVouchers.length
+            ) {
+              await dbSaveCustomer(mergedC);
+            }
+            mergedCustomersMap.set(localC.folio, mergedC);
           }
-          for (const visit of visits) {
-            await dbSaveVisit(visit);
-          }
-          for (const log of logs) {
-            await dbSaveLog(log);
-          }
-          await dbSaveConfig(config);
-          for (const survey of surveys) {
-            await dbSaveSurvey(survey);
-          }
-          for (const answer of surveyAnswers) {
-            await dbSaveAnswer(answer);
-          }
-          for (const clerk of CLERKS) {
-            await dbSaveClerk(clerk);
-          }
-          console.log('Firebase Firestore successfully seeded!');
         }
+
+        // Visits Merge
+        const mergedVisitsMap = new Map<string, VisitRecord>();
+        cloudVisits.forEach(v => mergedVisitsMap.set(v.id, v));
+        for (const localV of visits) {
+          if (!mergedVisitsMap.has(localV.id)) {
+            mergedVisitsMap.set(localV.id, localV);
+            await dbSaveVisit(localV);
+          }
+        }
+
+        // Logs Merge
+        const mergedLogsMap = new Map<string, ActivityLog>();
+        cloudLogs.forEach(l => mergedLogsMap.set(l.id, l));
+        for (const localL of logs) {
+          if (!mergedLogsMap.has(localL.id)) {
+            mergedLogsMap.set(localL.id, localL);
+            await dbSaveLog(localL);
+          }
+        }
+
+        // Config Merge
+        let finalConfig = config;
+        const cloudConfig = cloudConfigList.find(c => c.pin !== undefined);
+        if (!cloudConfig) {
+          await dbSaveConfig(config);
+        } else {
+          finalConfig = cloudConfig;
+        }
+
+        // Surveys Merge
+        const mergedSurveysMap = new Map<string, Survey>();
+        cloudSurveys.forEach(s => mergedSurveysMap.set(s.id, s));
+        for (const localS of surveys) {
+          if (!mergedSurveysMap.has(localS.id)) {
+            mergedSurveysMap.set(localS.id, localS);
+            await dbSaveSurvey(localS);
+          } else {
+            const cloudS = mergedSurveysMap.get(localS.id)!;
+            if (localS.submissionsCount > cloudS.submissionsCount || localS.active !== cloudS.active) {
+              const mergedS = { ...cloudS, ...localS };
+              mergedSurveysMap.set(localS.id, mergedS);
+              await dbSaveSurvey(mergedS);
+            }
+          }
+        }
+
+        // SurveyAnswers Merge
+        const mergedAnswersMap = new Map<string, SurveyAnswer>();
+        cloudAnswers.forEach(a => mergedAnswersMap.set(a.id, a));
+        for (const localA of surveyAnswers) {
+          if (!mergedAnswersMap.has(localA.id)) {
+            mergedAnswersMap.set(localA.id, localA);
+            await dbSaveAnswer(localA);
+          }
+        }
+
+        // Clerks Merge
+        const mergedClerksMap = new Map<string, Clerk>();
+        cloudClerks.forEach(c => mergedClerksMap.set(c.code, c));
+        for (const localClerk of CLERKS) {
+          if (!mergedClerksMap.has(localClerk.code)) {
+            mergedClerksMap.set(localClerk.code, localClerk);
+            await dbSaveClerk(localClerk);
+          }
+        }
+
+        // Fill state with synchronized, merged values
+        setConsumers([...mergedCustomersMap.values()].sort((a, b) => a.folio.localeCompare(b.folio)));
+        setVisits([...mergedVisitsMap.values()].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setLogs([...mergedLogsMap.values()].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setConfig(finalConfig);
+        setSurveys([...mergedSurveysMap.values()]);
+        setSurveyAnswers([...mergedAnswersMap.values()]);
+        setCLERKS([...mergedClerksMap.values()]);
+
+        console.log('Intelligent multi-device state merging with Firebase Firestore completed successfully.');
       } catch (err) {
-        console.error('Initial Firebase sync or seeding failed:', err);
+        console.error('Initial multi-device synchronization failed:', err);
       }
     };
 
     initSync().then(() => {
       const unsubCustomers = subscribeToCollection<RegisteredCustomer>('customers', (data) => {
-        if (data && data.length > 0) {
+        if (data) {
           const sorted = [...data].sort((a, b) => a.folio.localeCompare(b.folio));
           setConsumers(sorted);
         }
@@ -285,7 +430,7 @@ export default function App() {
       });
 
       const unsubClerks = subscribeToCollection<Clerk>('clerks', (data) => {
-        if (data && data.length > 0) {
+        if (data) {
           setCLERKS(data);
         }
       });

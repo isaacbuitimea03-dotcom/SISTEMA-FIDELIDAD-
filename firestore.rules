@@ -1,49 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Catch-all safety net
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Global Helpers
-    function isValidId(id) {
-      return id is string && id.size() <= 128;
-    }
-
-    // Customers collection
-    match /customers/{customerFolio} {
-      allow read, write: if isValidId(customerFolio);
-    }
-
-    // Visits collection (historic stamp credits)
-    match /visits/{visitId} {
-      allow read, write: if isValidId(visitId);
-    }
-
-    // Logs collection (audit records)
-    match /logs/{logId} {
-      allow read, write: if isValidId(logId);
-    }
-
-    // Merchant parameters and global configuration
-    match /config/{configId} {
-      allow read, write: if isValidId(configId);
-    }
-
-    // Polls / survey campaign sheets
-    match /surveys/{surveyId} {
-      allow read, write: if isValidId(surveyId);
-    }
-
-    // Customer submitted feedback/answers
-    match /surveyAnswers/{answerId} {
-      allow read, write: if isValidId(answerId);
-    }
-
-    // Active clerks database
-    match /clerks/{clerkCode} {
-      allow read, write: if isValidId(clerkCode);
+      allow read, write: if true;
     }
   }
 }
