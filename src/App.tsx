@@ -754,6 +754,7 @@ export default function App() {
   const [regBirthday, setRegBirthday] = useState('');
   const [regError, setRegError] = useState('');
   const [regSuccess, setRegSuccess] = useState(false);
+  const [regPinInput, setRegPinInput] = useState('');
 
   // Stamp Rewards Congratulation state
   const [congratsRewardTitle, setCongratsRewardTitle] = useState<string | null>(null);
@@ -1259,6 +1260,18 @@ export default function App() {
       return;
     }
 
+    // PIN validation
+    const normalizedInput = regPinInput.trim().toLowerCase();
+    const matchedClerk = CLERKS.find(c => 
+      c.pin.toLowerCase() === normalizedInput || 
+      c.code.toLowerCase() === normalizedInput
+    ) || (normalizedInput === 'bistro2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+
+    if (!matchedClerk) {
+      setRegError('La clave PIN de seguridad ingresada es incorrecta.');
+      return;
+    }
+
     const newCustomerObj: RegisteredCustomer = {
       folio: regFolio,
       name: regName,
@@ -1274,16 +1287,16 @@ export default function App() {
 
     syncSetConsumers(prev => [newCustomerObj, ...prev]);
 
-    // Create registry activity log
+    // Create registry activity log with approved clerk details
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
       type: 'customer_registered' as any,
       amount: 1,
       title: `Registro de Cliente #${regFolio}`,
-      description: `Se realizó el registro del cliente ${regName} con el folio físico #${regFolio}.`,
+      description: `Se realizó el registro del cliente ${regName} con el folio físico #${regFolio}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
       timestamp: new Date().toISOString(),
-      clerkName: 'Gerencia',
-      clerkCode: 'GER',
+      clerkName: matchedClerk.name,
+      clerkCode: matchedClerk.code,
       customerFolio: regFolio
     };
     syncSetLogs(prevL => [logRecord, ...prevL]);
@@ -1294,6 +1307,7 @@ export default function App() {
     setRegEmail('');
     setRegBirthday('');
     setRegError('');
+    setRegPinInput('');
     setRegSuccess(true);
     setTimeout(() => {
       setRegSuccess(false);
@@ -2742,10 +2756,32 @@ export default function App() {
                       <p className="text-[10px] text-slate-400">Requerido para generar las alertas en el portal de cumpleaños.</p>
                     </div>
 
+                    {/* SIGNATURE SAFEGUARD */}
+                    <div className="border-t border-dashed border-slate-200 pt-4 space-y-3 font-sans">
+                      <div className="space-y-1">
+                        <label className="text-[#149b8f] font-black uppercase tracking-widest text-[9px] block">💼 Clave de Autorización de Encargado *</label>
+                        <input
+                          type="password"
+                          placeholder="Introduce tu PIN confidencial de encargado del Bistro"
+                          value={regPinInput}
+                          onChange={(e) => setRegPinInput(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-205 rounded-xl px-4 py-2 text-xs text-center tracking-widest text-[#149b8f] font-bold focus:border-[#149b8f] outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-400 font-sans text-center">
+                        El sistema detectará automáticamente qué personal autoriza el registro de este cliente según el PIN confidencial ingresado.
+                      </div>
+                    </div>
+
                     <div className="pt-2 flex gap-3 text-xs">
                       <button
                         type="button"
-                        onClick={() => setActiveTab('clientes')}
+                        onClick={() => {
+                          setRegPinInput('');
+                          setRegError('');
+                          setActiveTab('clientes');
+                        }}
                         className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition cursor-pointer text-center"
                       >
                         Cancelar
