@@ -731,6 +731,23 @@ export default function App() {
   const [appMountTime] = useState<number>(() => Date.now());
   const notifiedIdsRef = useRef<Set<string>>(new Set());
 
+  // Broadcast current Client Session details directly into registered Service Worker
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && clientPortalSession) {
+      navigator.serviceWorker.ready.then((registration) => {
+        if (registration.active) {
+          registration.active.postMessage({
+            type: 'SET_SESSION',
+            session: {
+              folio: clientPortalSession.folio,
+              name: clientPortalSession.name
+            }
+          });
+        }
+      });
+    }
+  }, [clientPortalSession]);
+
   useEffect(() => {
     if (!isFirebaseLoaded || notifications.length === 0) return;
 
