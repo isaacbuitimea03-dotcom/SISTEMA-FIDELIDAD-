@@ -4,9 +4,9 @@ import {
   FileText, Sliders, Calendar, Search, Trash2, 
   Plus, MessageSquare, HelpCircle, Download, Check, ToggleLeft, ToggleRight,
   Eye, ClipboardList, Settings, Sparkles, HelpCircle as QuestionIcon,
-  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift
+  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift, Coffee, Cake
 } from 'lucide-react';
-import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk } from '../types';
+import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk, AppNotification } from '../types';
 
 interface MerchantReportsTabPanelProps {
   customers: RegisteredCustomer[];
@@ -21,6 +21,9 @@ interface MerchantReportsTabPanelProps {
   surveyAnswers: SurveyAnswer[];
   clerks: Clerk[];
   setClerks: React.Dispatch<React.SetStateAction<Clerk[]>>;
+  notifications: AppNotification[];
+  onSaveNotification: (notification: AppNotification) => Promise<void>;
+  onDeleteNotification: (id: string) => Promise<void>;
 }
 
 export default function MerchantReportsTabPanel({ 
@@ -35,7 +38,10 @@ export default function MerchantReportsTabPanel({
   setSurveys,
   surveyAnswers,
   clerks,
-  setClerks
+  setClerks,
+  notifications,
+  onSaveNotification,
+  onDeleteNotification
 }: MerchantReportsTabPanelProps) {
   const [filterPeriod, setFilterPeriod] = useState<'todo' | 'semana' | 'mes' | 'anio'>('todo');
   const [logSearchQuery, setLogSearchQuery] = useState('');
@@ -73,6 +79,67 @@ export default function MerchantReportsTabPanel({
   const [gestorUnlockCode, setGestorUnlockCode] = useState('');
   const [isGestorUnlocked, setIsGestorUnlocked] = useState(false);
   const [gestorUnlockError, setGestorUnlockError] = useState('');
+
+  // Alertas de celular (Push notifications dispatch state)
+  const [notiTitle, setNotiTitle] = useState('');
+  const [notiBody, setNotiBody] = useState('');
+  const [notiTarget, setNotiTarget] = useState('all');
+  const [notiIcon, setNotiIcon] = useState<'coffee' | 'promo' | 'cake' | 'gift' | 'alert'>('coffee');
+  const [notiError, setNotiError] = useState('');
+  const [notiSuccess, setNotiSuccess] = useState(false);
+  const [clerkPinInput, setClerkPinInput] = useState('');
+  const [authClerkCode, setAuthClerkCode] = useState('');
+  const [authClerk, setAuthClerk] = useState<Clerk | null>(null);
+  const [isSendingNoti, setIsSendingNoti] = useState(false);
+
+  const handleSendNotification = async () => {
+    setNotiError('');
+    setNotiSuccess(false);
+
+    if (!notiTitle.trim()) {
+      setNotiError('Por favor ingresa el título de la notificación.');
+      return;
+    }
+    if (!notiBody.trim()) {
+      setNotiError('Por favor ingresa el mensaje o detalle de la alerta.');
+      return;
+    }
+    if (!authClerk) {
+      setNotiError('Por favor selecciona un operador de caja autorizado.');
+      return;
+    }
+    if (authClerk.pin !== clerkPinInput) {
+      setNotiError('El PIN del operador es incorrecto.');
+      return;
+    }
+
+    setIsSendingNoti(true);
+    try {
+      const newNotification: AppNotification = {
+        id: `noti_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        title: notiTitle,
+        body: notiBody,
+        targetCustomerFolio: notiTarget,
+        icon: notiIcon,
+        timestamp: new Date().toISOString(),
+        clerkName: authClerk.name,
+        clerkCode: authClerk.code
+      };
+
+      await onSaveNotification(newNotification);
+      
+      setNotiTitle('');
+      setNotiBody('');
+      setClerkPinInput('');
+      setNotiSuccess(true);
+      setTimeout(() => setNotiSuccess(false), 4500);
+    } catch (e) {
+      console.error(e);
+      setNotiError('Error de red al guardar la notificación de lealtad.');
+    } finally {
+      setIsSendingNoti(false);
+    }
+  };
 
   const handleUnlockGestor = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2139,6 +2206,217 @@ export default function MerchantReportsTabPanel({
             </div>
           </div>
         )}
+      </div>
+
+      {/* 🔔 GESTOR DE ALERTAS DE CELULAR (PUSH NOTIFICATIONS) */}
+      <div id="gestor-alertas-celular-container" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+        <div className="border-b border-slate-150 pb-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 border border-orange-100">
+              <Smartphone size={16} />
+            </div>
+            <div>
+              <h3 className="font-serif font-black text-sm text-slate-900 leading-tight">Configuración de Alertas Celulares (Avisos Push)</h3>
+              <p className="text-[11px] text-slate-500 font-sans">
+                Crea y envía notificaciones en tiempo real que aparecen en la barra de avisos de tus socios.
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] bg-orange-50 text-orange-700 font-extrabold px-2 py-0.5 rounded-full border border-orange-100 uppercase tracking-wider font-mono">
+            {notifications.length} enviadas
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Dispatcher Form */}
+          <div className="lg:col-span-5 bg-slate-50 rounded-2xl p-4 border border-slate-150 space-y-4 font-sans text-xs">
+            <h4 className="font-bold text-slate-800 text-[11.5px] uppercase tracking-wider">Nueva Notificación al Celular</h4>
+            
+            <div className="space-y-3 text-left">
+              {/* Title */}
+              <div className="space-y-1">
+                <label className="text-slate-500 font-bold block text-[10px] uppercase">Título de la Alerta</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: ¡2x1 en Capuccinos Hoy! ☕"
+                  value={notiTitle}
+                  onChange={(e) => setNotiTitle(e.target.value)}
+                  className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:bg-white rounded-xl px-3 py-2.5 text-xs outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
+                />
+              </div>
+
+              {/* Body */}
+              <div className="space-y-1">
+                <label className="text-slate-500 font-bold block text-[10px] uppercase">Mensaje o Detalle</label>
+                <textarea
+                  required
+                  rows={2}
+                  placeholder="Ej: Te regalamos el segundo en la compra de cualquier tamaño café durante todo el día de hoy..."
+                  value={notiBody}
+                  onChange={(e) => setNotiBody(e.target.value)}
+                  className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:bg-white rounded-xl px-3 py-2 text-xs outline-none focus:border-orange-500 transition-all font-medium text-slate-800 leading-relaxed"
+                />
+              </div>
+
+              {/* Selection Target */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold block text-[10px] uppercase">Dirigido a</label>
+                  <select
+                    value={notiTarget}
+                    onChange={(e) => setNotiTarget(e.target.value)}
+                    className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2.5 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
+                  >
+                    <option value="all">📢 Todos los Socios</option>
+                    {customers.map((c) => (
+                      <option key={c.folio} value={c.folio}>
+                        👤 {c.name} ({c.folio})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1 font-sans">
+                  <label className="text-slate-500 font-bold block text-[10px] uppercase">Icono Visual</label>
+                  <select
+                    value={notiIcon}
+                    onChange={(e) => setNotiIcon(e.target.value as any)}
+                    className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2.5 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
+                  >
+                    <option value="coffee">☕ Café / Bistro</option>
+                    <option value="promo">✨ Especial 2x1</option>
+                    <option value="cake">🍰 Pastel de Regalo</option>
+                    <option value="gift">🎁 Sorpresa Gratis</option>
+                    <option value="alert">🔔 Alerta de Cupón</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Authorization Operator Credentials */}
+              <div className="border-t border-slate-205 pt-3.5 space-y-3">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">🔒 Validación de Seguridad de Caja</span>
+                
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-slate-500 font-bold block text-[10px] uppercase">Cajero Operador</label>
+                    <select
+                      value={authClerkCode}
+                      onChange={(e) => {
+                        const code = e.target.value;
+                        setAuthClerkCode(code);
+                        const selected = clerks.find(c => c.code === code);
+                        setAuthClerk(selected || null);
+                      }}
+                      className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
+                    >
+                      <option value="">Selecciona Cajero...</option>
+                      {clerks.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.label} ({c.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-slate-500 font-bold block text-[10px] uppercase">PIN Seguro de Cajero</label>
+                    <input
+                      type="password"
+                      maxLength={4}
+                      placeholder="Ej: 1234"
+                      value={clerkPinInput}
+                      onChange={(e) => setClerkPinInput(e.target.value.replace(/\D/g, ''))}
+                      className="w-full bg-white border border-slate-205 hover:border-slate-300 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-orange-500 text-center tracking-widest font-black text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {notiError && (
+                <p className="p-3 bg-red-50 text-red-650 rounded-xl text-[10.5px] font-bold border border-red-100 leading-normal">
+                  ⚠️ {notiError}
+                </p>
+              )}
+
+              {notiSuccess && (
+                <p className="p-3 bg-green-50 text-emerald-700 rounded-xl text-[10.5px] font-bold border border-green-150 leading-normal flex items-center gap-2 font-sans">
+                  <span className="p-1 bg-emerald-500/10 text-emerald-600 rounded-lg">✔</span> ¡Alerta de celular transmitida con éxito!
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSendNotification}
+                disabled={isSendingNoti}
+                className="w-full py-3 bg-orange-650 hover:bg-orange-700 disabled:bg-orange-300 text-white font-extrabold rounded-xl transition text-center cursor-pointer text-xs uppercase tracking-wider shadow-sm shadow-orange-700/10"
+              >
+                {isSendingNoti ? 'Estableciendo Enlace...' : 'Emitir Alerta Push 📲'}
+              </button>
+            </div>
+          </div>
+
+          {/* Past History Logs */}
+          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-150 p-4 space-y-3.5 text-xs flex flex-col min-h-[350px]">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                Registro de Alertas Emitidas
+              </h4>
+              <span className="text-[9px] text-slate-400 font-mono">Real-time live logs</span>
+            </div>
+
+            <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 flex-grow">
+              {notifications.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 font-sans space-y-1">
+                  <p className="text-xs font-bold text-slate-550">Ninguna alerta celular emitida aún</p>
+                  <p className="text-[10px] text-slate-400">Las promociones lanzadas se guardarán en la nube de Firestore.</p>
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className="p-3 bg-slate-50 border border-slate-150 hover:border-slate-200 rounded-2xl flex items-start gap-3 relative hover:bg-slate-100/70 transition text-slate-700"
+                  >
+                    <div className="w-8.5 h-8.5 rounded-xl bg-orange-50 text-orange-600 border border-orange-100 flex items-center justify-center shrink-0 shadow-sm">
+                      {n.icon === 'coffee' && <Coffee size={15} />}
+                      {n.icon === 'promo' && <Sparkles size={15} />}
+                      {n.icon === 'cake' && <Cake size={15} />}
+                      {n.icon === 'gift' && <Gift size={15} />}
+                      {n.icon === 'alert' && <Smartphone size={15} />}
+                    </div>
+                    <div className="flex-grow space-y-1 text-left min-w-0 pr-6">
+                      <div className="flex items-center flex-wrap gap-1.5 min-w-0">
+                        <h5 className="font-black text-slate-900 truncate leading-tight text-[11.5px] max-w-[200px]">{n.title}</h5>
+                        <span className="text-[7.5px] bg-amber-50 text-amber-700 border border-amber-100 font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest shrink-0 scale-90">
+                          {n.targetCustomerFolio === 'all' ? 'Público general' : `Socio ${n.targetCustomerFolio}`}
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-550 leading-relaxed font-sans">{n.body}</p>
+                      
+                      <div className="flex items-center gap-2 text-[9px] text-slate-400 font-mono font-medium pt-1">
+                        <span>Cajero: <strong className="text-slate-600">{n.clerkName}</strong></span>
+                        <span>•</span>
+                        <span>{new Date(n.timestamp).toLocaleString('es-MX', { hour12: true, dateStyle: 'short', timeStyle: 'short' })}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('¿Estás seguro de que deseas retirar esta alerta push de inmediato? Se borrará de la nube y de las pantallas de los socios.')) {
+                          onDeleteNotification(n.id);
+                        }
+                      }}
+                      title="Retirar notificación de inmediato"
+                      className="absolute top-3.5 right-3 p-1.5 text-slate-400 hover:text-red-650 hover:bg-slate-200 rounded-lg transition-all cursor-pointer shrink-0"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Encuestas para Clientes Form Section (Screen 11) */}

@@ -307,6 +307,30 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
         </div>
       </div>
 
+      {/* Añadir a Apple Wallet Badge Button */}
+      <button
+        type="button"
+        onClick={() => {
+          alert(`¡Excelente elección! Iniciando simulación de Pase de Lealtad. \n\nEn un entorno de producción real, este botón envía una solicitud HTTPS al servidor para generar y firmar digitalmente un archivo ".pkpass" (utilizando tus llaves privadas de Apple Developer para el Pass Type ID). \n\nEl servidor responde con el encabezado de tipo MIME "application/vnd.apple.pkpass", lo que indica a iOS o watchOS abrir el pase nativo y agregarlo a tu Apple Wallet de inmediato. \n\nPor ahora, tu folio #${session.folio} ya está sincronizado en la base de datos de la nube.`);
+        }}
+        className="mt-3 w-full max-w-[215px] bg-[#1a1a1c] hover:bg-black text-white rounded-xl px-4 py-2 border border-zinc-800 hover:border-zinc-650 shadow-md flex items-center justify-center gap-2.5 transition active:scale-[0.98] cursor-pointer text-left tracking-tight font-sans self-center select-none"
+      >
+        {/* Style-compliant Apple Wallet / Passbook logo path */}
+        <div className="flex h-5 w-5 items-center justify-center shrink-0">
+          <svg viewBox="0 0 38 31" className="h-4.5 w-4.5 fill-current text-white" xmlns="http://www.w3.org/2000/svg">
+            <g fill="none" fillRule="evenodd">
+              <path d="M4 14.5a3.5 3.5 0 013.5-3.5h27a3.5 3.5 0 013.5 3.5v13a3.5 3.5 0 01-3.5 3.5h-27a3.5 3.5 0 01-3.5-3.5v-13z" fill="#007AFF"/>
+              <path d="M2.5 8h29a3.5 3.5 0 013.5 3.5V13H2.5v-5z" fill="#FFCC00" opacity=".95"/>
+              <path d="M1 2.5H27a3.5 3.5 0 013.5 3.5V8H1V2.5z" fill="#FF5B55" opacity=".9"/>
+            </g>
+          </svg>
+        </div>
+        <div className="flex flex-col text-[8px] leading-tight font-medium font-sans uppercase tracking-wider text-zinc-400 select-none">
+          <span>Añadir a</span>
+          <span className="text-[12.5px] text-white font-extrabold normal-case tracking-normal">Apple Wallet</span>
+        </div>
+      </button>
+
       {/* Zoomed QR Code Modal */}
       <AnimatePresence>
         {isQrZoomed && (

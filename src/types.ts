@@ -114,3 +114,15 @@ export interface SurveyAnswer {
   }[];
 }
 
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  targetCustomerFolio: 'all' | string;
+  icon: 'coffee' | 'promo' | 'cake' | 'gift' | 'alert';
+  timestamp: string;
+  clerkName: string;
+  clerkCode: string;
+}
+
+

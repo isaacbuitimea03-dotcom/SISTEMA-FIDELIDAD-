@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Coffee, Sparkles, User, Sliders, RefreshCw, HelpCircle, Key, 
@@ -9,7 +9,8 @@ import {
 
 import { 
   RegisteredCustomer, VisitRecord, ActivityLog, 
-  UserSession, MerchantConfig, Survey, SurveyAnswer, Clerk 
+  UserSession, MerchantConfig, Survey, SurveyAnswer, Clerk,
+  AppNotification
 } from './types';
 import { DEFAULT_MERCHANT_CONFIG } from './utils/rewards';
 import { 
@@ -24,10 +25,12 @@ import MerchantReportsTabPanel from './components/MerchantReportsTabPanel';
 import CustomerCard from './components/CustomerCard';
 import ClientSurveyWizard from './components/ClientSurveyWizard';
 import { MiCafecitoLogo } from './components/MiCafecitoLogo';
+import CustomerNotificationCenter from './components/CustomerNotificationCenter';
 
 import { 
   dbSaveCustomer, dbDeleteCustomer, dbSaveVisit, dbSaveLog, dbSaveConfig,
   dbSaveSurvey, dbSaveAnswer, dbSaveClerk, dbDeleteClerk,
+  dbSaveNotification, dbDeleteNotification,
   subscribeToCollection, testConnection, db
 } from './utils/firebase';
 import { getDocs, collection, doc, deleteDoc } from 'firebase/firestore';
@@ -435,6 +438,13 @@ export default function App() {
         }
       });
 
+      const unsubNotifications = subscribeToCollection<AppNotification>('notifications', (data) => {
+        if (data) {
+          const sorted = [...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setNotifications(sorted);
+        }
+      });
+
       setIsFirebaseLoaded(true);
 
       return () => {
@@ -445,6 +455,7 @@ export default function App() {
         unsubSurveys();
         unsubAnswers();
         unsubClerks();
+        unsubNotifications();
       };
     });
   }, []);
@@ -712,6 +723,66 @@ export default function App() {
   const [clientBdayInput, setClientBdayInput] = useState('');
   const [clientPortalSession, setClientPortalSession] = useState<UserSession | null>(null);
   const [clientPortalError, setClientPortalError] = useState('');
+
+  // Mobile app notifications push simulation state
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [activeInAppNotification, setActiveInAppNotification] = useState<AppNotification | null>(null);
+
+  const [appMountTime] = useState<number>(() => Date.now());
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!isFirebaseLoaded || notifications.length === 0) return;
+
+    // Filter only new notifications sent after this device/browser launched the app
+    const brandNewNotifications = notifications.filter(n => {
+      const isNew = new Date(n.timestamp).getTime() > appMountTime - 2000; // 2 seconds leeway
+      const notYetNotified = !notifiedIdsRef.current.has(n.id);
+      return isNew && notYetNotified;
+    });
+
+    if (brandNewNotifications.length === 0) return;
+
+    // Grab the absolute latest one to trigger right now
+    const latestNotification = brandNewNotifications[brandNewNotifications.length - 1];
+    
+    // Add all of these to the notified set so they don't fire again
+    brandNewNotifications.forEach(n => notifiedIdsRef.current.add(n.id));
+
+    // Check if it applies to everyone ('all') OR to this active customer's folio
+    const forMe = latestNotification.targetCustomerFolio === 'all' || 
+                  (clientPortalSession && latestNotification.targetCustomerFolio === clientPortalSession.folio);
+
+    if (forMe) {
+      // 1. Trigger beautiful in-app popup/banner alert
+      setActiveInAppNotification(latestNotification);
+
+      // Play soft sound or beep
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+        gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.25);
+      } catch (audioErr) {
+        console.log('Audio feedback not supported or blocked by user input policy');
+      }
+
+      // 2. Trigger native browser push notification if permitted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(latestNotification.title, {
+          body: latestNotification.body,
+          tag: latestNotification.id,
+        });
+      }
+    }
+  }, [notifications, clientPortalSession, isFirebaseLoaded, appMountTime]);
 
   // Sello Clientes active action modals
   const [stampingCustomerFolio, setStampingCustomerFolio] = useState<string | null>(null);
@@ -1426,6 +1497,41 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F4F7F6] text-slate-800 flex flex-col relative font-sans selection:bg-[#149b8f]/20 selection:text-[#149b8f] w-full max-w-full overflow-x-hidden touch-pan-y">
       
+      {/* 🔔 FLOATING REALTIME PUSH NOTIFICATION POPUP */}
+      <AnimatePresence>
+        {activeInAppNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -80, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -45, scale: 0.95 }}
+            className="fixed top-4 left-4 right-4 z-50 mx-auto max-w-sm bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700/50 flex gap-3.5 font-sans"
+            style={{ pointerEvents: 'auto' }}
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#149b8f] text-white flex items-center justify-center shrink-0 shadow-lg select-none">
+              {activeInAppNotification.icon === 'coffee' && <Coffee size={20} />}
+              {activeInAppNotification.icon === 'promo' && <Sparkles size={20} />}
+              {activeInAppNotification.icon === 'cake' && <Cake size={20} />}
+              {activeInAppNotification.icon === 'gift' && <Gift size={20} />}
+              {activeInAppNotification.icon === 'alert' && <Coffee size={20} />}
+            </div>
+            <div className="flex-grow space-y-1 text-left">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-widest font-extrabold text-[#149b8f]">🔔 Alerta de Celular</span>
+                <span className="text-[9px] text-slate-400 font-mono">Ahora mismo</span>
+              </div>
+              <h5 className="text-xs font-black leading-tight tracking-tight">{activeInAppNotification.title}</h5>
+              <p className="text-[11px] text-slate-200 leading-normal">{activeInAppNotification.body}</p>
+            </div>
+            <button
+              onClick={() => setActiveInAppNotification(null)}
+              className="self-start text-xs text-slate-400 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition shrink-0 cursor-pointer"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
       {isClientMode ? (
         /* ==================== CLIENT STANDALONE WEBSITE (Matching user photo exactly) ==================== */
         <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10 w-full max-w-full overflow-x-hidden touch-pan-y">
@@ -1558,6 +1664,11 @@ export default function App() {
                     onReset={() => {
                       alert('Para redenciones o canjes de bebida de cortesía, por favor consulta directamente al cajero autorizado del Bistro de Mi Cafecito.');
                     }}
+                  />
+
+                  <CustomerNotificationCenter 
+                    session={clientPortalSession} 
+                    notifications={notifications} 
                   />
 
                   <p className="text-center text-xs text-slate-400 font-sans px-4 leading-normal">
@@ -2263,6 +2374,11 @@ export default function App() {
                   }}
                 />
 
+                <CustomerNotificationCenter 
+                  session={clientPortalSession} 
+                  notifications={notifications} 
+                />
+
                 <p className="text-center text-xs text-slate-400">
                   Haz clic en el plástico virtual para girarlo y mostrar tu QR holográfico en la barra del Bistró. ¡Gracias por tu visita!
                 </p>
@@ -2868,6 +2984,9 @@ export default function App() {
                     surveyAnswers={surveyAnswers}
                     clerks={CLERKS}
                     setClerks={syncSetCLERKS}
+                    notifications={notifications}
+                    onSaveNotification={dbSaveNotification}
+                    onDeleteNotification={dbDeleteNotification}
                   />
                 )}
               </div>

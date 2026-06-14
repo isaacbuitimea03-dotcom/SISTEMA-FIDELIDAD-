@@ -104,6 +104,22 @@
         "pin": { "type": "string" }
       },
       "required": ["code", "label", "name", "pin"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "A notification alert that appears on mobile devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "targetCustomerFolio": { "type": "string" },
+        "icon": { "type": "string", "enum": ["coffee", "promo", "cake", "gift", "alert"] },
+        "timestamp": { "type": "string" },
+        "clerkName": { "type": "string" },
+        "clerkCode": { "type": "string" }
+      },
+      "required": ["id", "title", "body", "targetCustomerFolio", "icon", "timestamp", "clerkName", "clerkCode"]
     }
   },
   "firestore": {
@@ -134,6 +150,10 @@
     "clerks": {
       "schema": "Clerk",
       "description": "Merchant-facing list of active clerks"
+    },
+    "notifications": {
+      "schema": "AppNotification",
+      "description": "Real-time client mobile alert notifications"
     }
   }
 }

@@ -19,7 +19,8 @@ import {
   MerchantConfig, 
   Survey, 
   SurveyAnswer, 
-  Clerk 
+  Clerk,
+  AppNotification
 } from '../types';
 
 const app = initializeApp(firebaseConfig);
@@ -171,6 +172,25 @@ export async function dbDeleteClerk(code: string) {
   const path = `clerks/${code}`;
   try {
     await deleteDoc(doc(db, 'clerks', code));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// NOTIFICATIONS OPERATIONS
+export async function dbSaveNotification(notification: AppNotification) {
+  const path = `notifications/${notification.id}`;
+  try {
+    await setDoc(doc(db, 'notifications', notification.id), notification);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function dbDeleteNotification(id: string) {
+  const path = `notifications/${id}`;
+  try {
+    await deleteDoc(doc(db, 'notifications', id));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
