@@ -2,6 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Bell, Sparkles, Coffee, Cake, Gift, ShieldCheck, HelpCircle, RefreshCw, Send, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppNotification, UserSession } from '../types';
+import { db } from '../utils/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 interface CustomerNotificationCenterProps {
   session: UserSession;
@@ -17,12 +34,56 @@ export default function CustomerNotificationCenter({ session, notifications }: C
   // High fidelity in-app live toast simulator state
   const [simulatedToast, setSimulatedToast] = useState<{ title: string; body: string; icon: string } | null>(null);
 
+  const registerPushSubscriptionInDb = async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Get public key
+      const res = await fetch('/api/push-public-key');
+      if (!res.ok) throw new Error('Could not fetch public VAPID key');
+      const { publicKey } = await res.json();
+      
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+      
+      console.log('Got native subscription:', subscription);
+      
+      // Save directly to Firestore collection
+      const subRef = doc(db, 'push_subscriptions', `sub_${session.folio}`);
+      await setDoc(subRef, {
+        id: `sub_${session.folio}`,
+        folio: session.folio,
+        name: session.name,
+        subscription: {
+          endpoint: subscription.endpoint,
+          keys: {
+            auth: subscription.toJSON().keys?.auth || '',
+            p256dh: subscription.toJSON().keys?.p256dh || ''
+          }
+        },
+        createdAt: new Date().toISOString()
+      });
+      console.log('Native Push subscription registered in Firestore successfully!');
+    } catch (err: any) {
+      console.warn('Silent skip/fail of native background push subscription:', err.message);
+    }
+  };
+
   useEffect(() => {
     const nativeSupported = typeof window !== 'undefined' && 'Notification' in window && typeof Notification.requestPermission === 'function';
     setIsNativeSupported(nativeSupported);
     
     if (nativeSupported) {
-      setPermissionStatus(Notification.permission);
+      const currentPerm = Notification.permission;
+      setPermissionStatus(currentPerm);
+      if (currentPerm === 'granted') {
+        registerPushSubscriptionInDb();
+      }
     } else {
       // Look for custom local consent inside restricted WebViews / sandboxes
       const savedConsent = localStorage.getItem(`bistro_simulated_push_consent_${session.folio}`);
@@ -93,6 +154,7 @@ export default function CustomerNotificationCenter({ session, notifications }: C
           body: 'Ahora recibirás alertas directas del Bistro Mi Cafecito directamente en tu celular.',
           icon: '/favicon.ico'
         });
+        registerPushSubscriptionInDb();
       } else if (result === 'denied') {
         // Fallback simulation activation if blocked natively so we can at least render in-app notifications
         localStorage.setItem(`bistro_simulated_push_consent_${session.folio}`, 'granted');

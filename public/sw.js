@@ -111,6 +111,65 @@ async function checkBackgroundNotifications() {
   }
 }
 
+// Native W3C Web Push event listener
+self.addEventListener('push', (event) => {
+  console.log('[SW] Push received event loaded:', event);
+  let data = { title: 'Bistro Mi Cafecito', body: 'Nueva sorpresa esperándote de lealtad.' };
+  
+  try {
+    if (event.data) {
+      data = event.data.json();
+    }
+  } catch (e) {
+    if (event.data) {
+      try {
+        data = { title: 'Bistro Mi Cafecito', body: event.data.text() };
+      } catch (innerE) {}
+    }
+  }
+
+  // Map icon to emoji
+  let emoji = '☕';
+  if (data.icon === 'promo') emoji = '✨';
+  if (data.icon === 'cake') emoji = '🍰';
+  if (data.icon === 'gift') emoji = '🎁';
+  if (data.icon === 'alert') emoji = '🔔';
+
+  const options = {
+    body: data.body,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    tag: data.id || 'bistro-push-tag',
+    renotify: true,
+    vibrate: [200, 100, 200],
+    data: '/'
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(`${emoji} ${data.title}`, options)
+  );
+});
+
+// App launcher on notification tap
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If a window is already open, focus it
+      for (const client of clientList) {
+        if ('focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise, open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow('/');
+      }
+    })
+  );
+});
+
 // Background poller loop. When the browser or system keeps the Service Worker process alive in the background,
 // it will poll Firestore every 25 seconds to check for any fresh alerts instantly.
 setInterval(() => {

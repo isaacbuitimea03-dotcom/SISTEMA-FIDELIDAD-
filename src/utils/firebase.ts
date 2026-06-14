@@ -182,6 +182,26 @@ export async function dbSaveNotification(notification: AppNotification) {
   const path = `notifications/${notification.id}`;
   try {
     await setDoc(doc(db, 'notifications', notification.id), notification);
+    
+    // Broadcast active notification payload wirelessly to subscribers even with fully closed browser/apps
+    try {
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: notification.title,
+          body: notification.body,
+          targetCustomerFolio: notification.targetCustomerFolio,
+          icon: notification.icon
+        })
+      }).catch(err => {
+        console.warn('[PUSH] API fetch dispatch failed:', err);
+      });
+    } catch (e) {
+      console.warn('[PUSH] Failed dispatching Web Push notification triggers:', e);
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
