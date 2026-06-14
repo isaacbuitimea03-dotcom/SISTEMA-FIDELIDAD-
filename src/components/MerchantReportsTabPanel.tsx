@@ -87,9 +87,6 @@ export default function MerchantReportsTabPanel({
   const [notiIcon, setNotiIcon] = useState<'coffee' | 'promo' | 'cake' | 'gift' | 'alert'>('coffee');
   const [notiError, setNotiError] = useState('');
   const [notiSuccess, setNotiSuccess] = useState(false);
-  const [clerkPinInput, setClerkPinInput] = useState('');
-  const [authClerkCode, setAuthClerkCode] = useState('');
-  const [authClerk, setAuthClerk] = useState<Clerk | null>(null);
   const [isSendingNoti, setIsSendingNoti] = useState(false);
 
   const handleSendNotification = async () => {
@@ -104,14 +101,6 @@ export default function MerchantReportsTabPanel({
       setNotiError('Por favor ingresa el mensaje o detalle de la alerta.');
       return;
     }
-    if (!authClerk) {
-      setNotiError('Por favor selecciona un operador de caja autorizado.');
-      return;
-    }
-    if (authClerk.pin !== clerkPinInput) {
-      setNotiError('El PIN del operador es incorrecto.');
-      return;
-    }
 
     setIsSendingNoti(true);
     try {
@@ -122,15 +111,14 @@ export default function MerchantReportsTabPanel({
         targetCustomerFolio: notiTarget,
         icon: notiIcon,
         timestamp: new Date().toISOString(),
-        clerkName: authClerk.name,
-        clerkCode: authClerk.code
+        clerkName: 'Administración',
+        clerkCode: 'admin'
       };
 
       await onSaveNotification(newNotification);
       
       setNotiTitle('');
       setNotiBody('');
-      setClerkPinInput('');
       setNotiSuccess(true);
       setTimeout(() => setNotiSuccess(false), 4500);
     } catch (e) {
@@ -2293,45 +2281,7 @@ export default function MerchantReportsTabPanel({
                 </div>
               </div>
 
-              {/* Authorization Operator Credentials */}
-              <div className="border-t border-slate-205 pt-3.5 space-y-3">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">🔒 Validación de Seguridad de Caja</span>
-                
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold block text-[10px] uppercase">Cajero Operador</label>
-                    <select
-                      value={authClerkCode}
-                      onChange={(e) => {
-                        const code = e.target.value;
-                        setAuthClerkCode(code);
-                        const selected = clerks.find(c => c.code === code);
-                        setAuthClerk(selected || null);
-                      }}
-                      className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
-                    >
-                      <option value="">Selecciona Cajero...</option>
-                      {clerks.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.label} ({c.name})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
 
-                  <div className="space-y-1">
-                    <label className="text-slate-500 font-bold block text-[10px] uppercase">PIN Seguro de Cajero</label>
-                    <input
-                      type="password"
-                      maxLength={4}
-                      placeholder="Ej: 1234"
-                      value={clerkPinInput}
-                      onChange={(e) => setClerkPinInput(e.target.value.replace(/\D/g, ''))}
-                      className="w-full bg-white border border-slate-205 hover:border-slate-300 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-orange-500 text-center tracking-widest font-black text-slate-800"
-                    />
-                  </div>
-                </div>
-              </div>
 
               {notiError && (
                 <p className="p-3 bg-red-50 text-red-650 rounded-xl text-[10.5px] font-bold border border-red-100 leading-normal">
