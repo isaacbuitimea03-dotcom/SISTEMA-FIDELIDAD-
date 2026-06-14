@@ -272,17 +272,34 @@ export default function CustomerNotificationCenter({ session, notifications }: C
           className="text-[10.5px] text-slate-400 hover:text-[#2bbba9] flex items-center gap-1 font-medium transition cursor-pointer"
         >
           <HelpCircle size={13} />
-          ¿Cómo recibir en celular?
+          ¿Cómo recibir fuera de la app?
         </button>
       </div>
 
+      <div className="bg-amber-50/75 border border-amber-200 rounded-2xl p-4 space-y-2 text-[11.5px] text-amber-900 leading-relaxed font-sans">
+        <h5 className="font-black text-amber-950 uppercase text-[10.5px] tracking-wide flex items-center gap-1.5">
+          <span>⚠️ PASO CRUCIAL PARA RECIBIR NOTIFICACIONES (IPHONE/iOS):</span>
+        </h5>
+        <p className="font-medium text-slate-700">
+          Apple tiene una regla de seguridad estricta: las autorizaciones de Safari **NO** se pasan a la pantalla de inicio. Debes hacer esto:
+        </p>
+        <ol className="list-decimal pl-4 space-y-1.5 text-slate-650">
+          <li>Abre el icono de la aplicación **desde la Pantalla de Inicio de tu celular** (el icono que agregaste).</li>
+          <li>Ve a esta sección de notificaciones **dentro de la app instalada** y presiona de nuevo el botón verde <strong className="text-[#1f9687]">"Permitir Alertas Push 📲"</strong>.</li>
+          <li>Cuando tu iPhone te pregunte si deseas permitir notificaciones de "Mi Cafecito", dale a **Permitir**.</li>
+        </ol>
+        <p className="text-[10px] text-amber-800 font-semibold pt-1">
+          ¡Listo! Haciendo esto desde el icono instalado, tu celular registrará la llave secreta en la base de datos de Mi Cafecito para recibir avisos nativos aun si la app está totalmente cerrada o tu celular bloqueado.
+        </p>
+      </div>
+
       {showGuide && (
-        <div className="bg-amber-50/75 border border-amber-105 rounded-2xl p-3.5 space-y-1.5 text-[11px] text-amber-900 leading-relaxed font-sans">
-          <h5 className="font-black text-slate-900 uppercase text-[10px] tracking-wide">💡 Guía para configurar en tu Celular (iOS & Android)</h5>
+        <div className="bg-sky-50/75 border border-sky-150 rounded-2xl p-3.5 space-y-1.5 text-[11px] text-sky-900 leading-relaxed font-sans">
+          <h5 className="font-black text-slate-900 uppercase text-[10px] tracking-wide">💡 Guía completa de configuración de Celulares</h5>
           <ul className="list-disc pl-4 space-y-1 text-slate-750">
-            <li><strong>iPhone (iOS):</strong> Toca el botón <b>Compartir</b> del menú inferior de Safari, luego selecciona <b>"Agregar a la pantalla de inicio"</b>. Abre la app desde el icono de tu celular y verás las notificaciones nativas de inmediato.</li>
-            <li><strong>Android (Chrome):</strong> Asegúrate de presionar el botón <b>"Habilitar Alertas Push 📲"</b> aquí abajo y autoriza los permisos de Chrome.</li>
-            <li><strong>En esta vista de Chat:</strong> El iframe de desarrollo bloquea la visualización de avisos externos. ¡Hemos activado la simulación para que lo pruebes sin problemas!</li>
+            <li><strong>iPhone (iOS):</strong> Toca el botón <b>Compartir</b> del menú inferior de Safari, luego selecciona <b>"Agregar a la pantalla de inicio"</b>. Abre la app desde el icono de tu celular y concede el acceso para registrar tu llave secreta.</li>
+            <li><strong>Android (Chrome):</strong> Asegúrate de presionar el botón <b>"Permitir Alertas Push 📲"</b> aquí abajo y autoriza los permisos de Chrome.</li>
+            <li><strong>En esta vista de Chat:</strong> El iframe de desarrollo bloquea los avisos nativos externos de tu sistema operativo. Usa la vista directa de preview en otra pestaña.</li>
           </ul>
         </div>
       )}
