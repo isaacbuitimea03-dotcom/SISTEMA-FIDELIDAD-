@@ -750,8 +750,10 @@ export default function App() {
     brandNewNotifications.forEach(n => notifiedIdsRef.current.add(n.id));
 
     // Check if it applies to everyone ('all') OR to this active customer's folio
-    const forMe = latestNotification.targetCustomerFolio === 'all' || 
-                  (clientPortalSession && latestNotification.targetCustomerFolio === clientPortalSession.folio);
+    const forMe = isClientMode && clientPortalSession && (
+      latestNotification.targetCustomerFolio === 'all' || 
+      latestNotification.targetCustomerFolio === clientPortalSession.folio
+    );
 
     if (forMe) {
       // 1. Trigger beautiful in-app popup/banner alert
