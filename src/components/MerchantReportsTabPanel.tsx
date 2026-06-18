@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
 import { 
   FileText, Sliders, Calendar, Search, Trash2, 
   Plus, MessageSquare, HelpCircle, Download, Check, ToggleLeft, ToggleRight,
   Eye, ClipboardList, Settings, Sparkles, HelpCircle as QuestionIcon,
-  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift, Coffee, Cake
+  Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift, Coffee, Cake, QrCode
 } from 'lucide-react';
 import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk, AppNotification } from '../types';
 
@@ -114,6 +115,52 @@ export default function MerchantReportsTabPanel({
   // Safely ask confirmation for survey deletion without standard blockable alert dialogs
   const [surveyToDeleteId, setSurveyToDeleteId] = useState<string | null>(null);
 
+  // QR Codes States & Helpers
+  const [qrFidelidadProd, setQrFidelidadProd] = useState('');
+  const [qrFidelidadDev, setQrFidelidadDev] = useState('');
+  const [qrEncuestasProd, setQrEncuestasProd] = useState('');
+  const [qrEncuestasDev, setQrEncuestasDev] = useState('');
+
+  React.useEffect(() => {
+    const generateQRs = async () => {
+      try {
+        const fProd = getBaseUrl() + '/#fidelidad';
+        const fDev = typeof window !== 'undefined' ? window.location.origin + '/#fidelidad' : '';
+        const eProd = getBaseUrl() + '/#portal_encuestas';
+        const eDev = typeof window !== 'undefined' ? window.location.origin + '/#portal_encuestas' : '';
+
+        const urlFProd = await QRCode.toDataURL(fProd, { width: 400, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } });
+        setQrFidelidadProd(urlFProd);
+
+        if (fDev) {
+          const urlFDev = await QRCode.toDataURL(fDev, { width: 400, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } });
+          setQrFidelidadDev(urlFDev);
+        }
+
+        const urlEProd = await QRCode.toDataURL(eProd, { width: 400, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } });
+        setQrEncuestasProd(urlEProd);
+
+        if (eDev) {
+          const urlEDev = await QRCode.toDataURL(eDev, { width: 400, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } });
+          setQrEncuestasDev(urlEDev);
+        }
+      } catch (err) {
+        console.error('Error generating QR Codes:', err);
+      }
+    };
+    generateQRs();
+  }, []);
+
+  const downloadQRCode = (dataUrl: string, filename: string) => {
+    if (!dataUrl) return;
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Gemini AI Conclusion States
   interface AIConclusionData {
     acceptanceScore: number;
@@ -131,7 +178,7 @@ export default function MerchantReportsTabPanel({
     setIsLoadingAiConclusion(true);
     setAiError('');
     try {
-      const activeSurveys = surveys.filter(s => s.active);
+      const activeSurveys = surveys.filter(s => s.active && !s.deleted);
       const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
       const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
 
@@ -157,7 +204,7 @@ export default function MerchantReportsTabPanel({
         setAiError(errData.error || 'No se pudo generar la conclusión de IA.');
       }
     } catch (e: any) {
-      console.error("Error communicating with Gemini endpoint:", e);
+      console.warn("Error communicating with Gemini endpoint:", e);
       setAiError('Ocurrió un error al contactar el servidor de inteligencia artificial.');
     } finally {
       setIsLoadingAiConclusion(false);
@@ -166,7 +213,7 @@ export default function MerchantReportsTabPanel({
 
   // Automatically refresh AI analysis when active survey answers or active surveys configuration count changes
   React.useEffect(() => {
-    const activeSurveys = surveys.filter(s => s.active);
+    const activeSurveys = surveys.filter(s => s.active && !s.deleted);
     const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
     const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
 
@@ -177,8 +224,8 @@ export default function MerchantReportsTabPanel({
       setAiConclusion(null);
     }
   }, [
-    surveys.filter(s => s.active).length,
-    surveys.length,
+    surveys.filter(s => s.active && !s.deleted).length,
+    surveys.filter(s => !s.deleted).length,
     uniqueSurveyAnswers.length
   ]);
 
@@ -854,7 +901,7 @@ export default function MerchantReportsTabPanel({
   };
 
   const handleDeleteSurvey = (id: string) => {
-    setSurveys(surveys.filter(s => s.id !== id));
+    setSurveys(surveys.map(s => s.id === id ? { ...s, deleted: true, active: false } : s));
   };
 
   // 1. Visit Trends by day
@@ -919,7 +966,7 @@ export default function MerchantReportsTabPanel({
     }
 
     // High fidelity dynamic, real-time client fallback
-    const activeSurveys = surveys.filter(s => s.active);
+    const activeSurveys = surveys.filter(s => s.active && !s.deleted);
     const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
     const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
 
@@ -1775,6 +1822,70 @@ export default function MerchantReportsTabPanel({
               </a>
             </div>
           )}
+
+          {/* QR Code Section for Fidelidad */}
+          <div className="pt-4 border-t border-slate-200/60 font-sans">
+            <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
+              <QrCode size={13} className="text-[#149b8f]" />
+              <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
+            </h5>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* QR Producción */}
+              <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                  SOCIOS EN PRODUCCIÓN (VERCEL)
+                </div>
+                <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
+                  {qrFidelidadProd ? (
+                    <img src={qrFidelidadProd} alt="QR Fidelidad Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
+                  Escanea para registrar visitas, consultar sellos y ver la tarjeta virtual real de producción.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadQRCode(qrFidelidadProd, 'QR_Fidelidad_Clientes_Prod.png')}
+                  disabled={!qrFidelidadProd}
+                  className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Download size={12} />
+                  <span>Descargar QR Producción (PNG)</span>
+                </button>
+              </div>
+
+              {/* QR Entorno Local */}
+              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                  <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                    ENTORNO DE PRUEBAS (ACTUAL)
+                  </div>
+                  <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
+                    {qrFidelidadDev ? (
+                      <img src={qrFidelidadDev} alt="QR Fidelidad Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-amber-850/80 leading-normal max-w-xs">
+                    Escanea para realizar pruebas en el servidor de desarrollo activo actual.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => downloadQRCode(qrFidelidadDev, 'QR_Fidelidad_Clientes_Pruebas.png')}
+                    disabled={!qrFidelidadDev}
+                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Download size={12} />
+                    <span>Descargar QR Pruebas (PNG)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Enlace 2: Portal de Encuestas de Consumidores */}
@@ -1852,6 +1963,70 @@ export default function MerchantReportsTabPanel({
               </p>
             </div>
           )}
+
+          {/* QR Code Section for Encuestas */}
+          <div className="pt-4 border-t border-slate-200/60 font-sans">
+            <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
+              <QrCode size={13} className="text-[#149b8f]" />
+              <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
+            </h5>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* QR Producción */}
+              <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                  ENCUESTAS EN PRODUCCIÓN (VERCEL)
+                </div>
+                <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
+                  {qrEncuestasProd ? (
+                    <img src={qrEncuestasProd} alt="QR Encuestas Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
+                  Escanea para que los socios abran directamente el cuestionario público de satisfacción.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadQRCode(qrEncuestasProd, 'QR_Encuestas_Clientes_Prod.png')}
+                  disabled={!qrEncuestasProd}
+                  className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Download size={12} />
+                  <span>Descargar QR Producción (PNG)</span>
+                </button>
+              </div>
+
+              {/* QR Entorno Local */}
+              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                  <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                    ENTORNO DE PRUEBAS (ACTUAL)
+                  </div>
+                  <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
+                    {qrEncuestasDev ? (
+                      <img src={qrEncuestasDev} alt="QR Encuestas Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-amber-800/80 leading-normal max-w-xs">
+                    Escanea para responder encuestas conectadas al entorno de desarrollo actual.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => downloadQRCode(qrEncuestasDev, 'QR_Encuestas_Clientes_Pruebas.png')}
+                    disabled={!qrEncuestasDev}
+                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Download size={12} />
+                    <span>Descargar QR Pruebas (PNG)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3092,12 +3267,12 @@ export default function MerchantReportsTabPanel({
             </div>
 
             <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
-              {surveys.length === 0 ? (
+              {surveys.filter(s => !s.deleted).length === 0 ? (
                 <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl py-12 text-center text-slate-400 italic text-xs">
                   No se han registrado encuestas. Comienza construyendo una a la izquierda.
                 </div>
               ) : (
-                surveys.map((srv) => {
+                surveys.filter(s => !s.deleted).map((srv) => {
                   const qCount = srv.questions ? srv.questions.length : 1;
                   return (
                     <div key={srv.id} className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3 relative shadow-xs flex flex-col justify-between">

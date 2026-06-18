@@ -99,6 +99,7 @@ export interface Survey {
   submissionsCount: number;
   question?: string; // legacy fallback
   options?: string[]; // legacy fallback
+  deleted?: boolean;
 }
 
 export interface SurveyAnswer {

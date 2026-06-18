@@ -57,7 +57,7 @@ export default function ConsumerSurveysPortal({
   const [isAnimatingLogo, setIsAnimatingLogo] = useState(false);
 
   // Active surveys list (filtering out ones already completed in this browser/device)
-  const activeSurveys = surveys.filter(s => s.active && !completedSurveys[s.id]);
+  const activeSurveys = surveys.filter(s => s.active && !s.deleted && !completedSurveys[s.id]);
 
   const handleSelectSurvey = (srv: Survey) => {
     setSelectedSurvey(srv);

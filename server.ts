@@ -326,10 +326,19 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
     
     REGLA: Responde ÚNICAMENTE con el objeto JSON, asegúrate de que sea JSON válido sin texto adicional, explicaciones ni tags markdown como \`\`\`json.`;
 
-    const response = await ai_genai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-    });
+    let response;
+    try {
+      response = await ai_genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+      });
+    } catch (e1) {
+      console.warn("[GEMINI] First attempt with gemini-2.5-flash failed, retrying with gemini-1.5-flash:", e1);
+      response = await ai_genai.models.generateContent({
+        model: "gemini-1.5-flash",
+        contents: prompt,
+      });
+    }
 
     const text = response.text || "{}";
     let cleanText = text.trim();
@@ -344,7 +353,7 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
     const parsed = JSON.parse(cleanText);
     res.json(parsed);
   } catch (error: any) {
-    console.error("[GEMINI] Model unavailable, activating mathematical fallback conclusion generator:", error);
+    console.warn("[GEMINI] Model unavailable, activating mathematical fallback conclusion generator:", error);
     // Graceful fallback to prevent user error blocks
     const fallback = getFallbackConclusion(surveys, surveyAnswers);
     res.json(fallback);

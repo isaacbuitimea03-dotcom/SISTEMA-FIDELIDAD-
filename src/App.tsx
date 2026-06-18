@@ -398,16 +398,43 @@ export default function App() {
         // Surveys Merge
         const mergedSurveysMap = new Map<string, Survey>();
         cloudSurveys.forEach(s => mergedSurveysMap.set(s.id, s));
+        
+        const cloudIsEmptyOfSurveys = cloudSurveys.filter(s => !s.deleted).length === 0;
+
         for (const localS of surveys) {
           if (!mergedSurveysMap.has(localS.id)) {
-            mergedSurveysMap.set(localS.id, localS);
-            await dbSaveSurvey(localS);
+            const isDefaultSurvey = localS.id.startsWith('srv_default_');
+            if (isDefaultSurvey) {
+              if (cloudIsEmptyOfSurveys) {
+                mergedSurveysMap.set(localS.id, localS);
+                await dbSaveSurvey(localS);
+              }
+            } else {
+              if (!localS.deleted) {
+                mergedSurveysMap.set(localS.id, localS);
+                await dbSaveSurvey(localS);
+              }
+            }
           } else {
             const cloudS = mergedSurveysMap.get(localS.id)!;
-            if (localS.submissionsCount > cloudS.submissionsCount || localS.active !== cloudS.active) {
-              const mergedS = { ...cloudS, ...localS };
+            const isMergedDeleted = cloudS.deleted || localS.deleted || false;
+            const mergedS: Survey = { 
+              ...cloudS, 
+              ...localS,
+              deleted: isMergedDeleted,
+              active: isMergedDeleted ? false : (cloudS.active || localS.active) 
+            };
+            mergedS.submissionsCount = Math.max(cloudS.submissionsCount || 0, localS.submissionsCount || 0);
+
+            if (
+              cloudS.submissionsCount !== mergedS.submissionsCount || 
+              cloudS.active !== mergedS.active || 
+              cloudS.deleted !== mergedS.deleted
+            ) {
               mergedSurveysMap.set(localS.id, mergedS);
               await dbSaveSurvey(mergedS);
+            } else {
+              mergedSurveysMap.set(localS.id, mergedS);
             }
           }
         }
@@ -615,28 +642,29 @@ export default function App() {
 
   const syncSetSurveys = async (updater: React.SetStateAction<Survey[]>) => {
     setSurveys((prevSurveys) => {
-      let nextVal: Survey[];
+      let nextRawVal: Survey[];
       if (typeof updater === 'function') {
-        nextVal = (updater as Function)(prevSurveys);
+        nextRawVal = (updater as Function)(prevSurveys);
       } else {
-        nextVal = updater;
+        nextRawVal = updater;
+      }
+
+      // Convert any omitted surveys from nextRawVal into soft-deleted surveys
+      const nextVal: Survey[] = [...nextRawVal];
+      const nextKeys = new Set(nextVal.map(s => s.id));
+
+      for (const s of prevSurveys) {
+        if (!nextKeys.has(s.id)) {
+          nextVal.push({
+            ...s,
+            deleted: true,
+            active: false
+          });
+        }
       }
 
       // Perform async Firestore operations in the background to avoid blocking and state mismatch
       setTimeout(async () => {
-        const oldKeys = new Set(prevSurveys.map(s => s.id));
-        const newKeys = new Set(nextVal.map(s => s.id));
-
-        for (const s of prevSurveys) {
-          if (!newKeys.has(s.id)) {
-            try {
-              await deleteDoc(doc(db, 'surveys', s.id));
-            } catch (e) {
-              console.error(e);
-            }
-          }
-        }
-
         for (const s of nextVal) {
           try {
             await dbSaveSurvey(s);
@@ -1793,7 +1821,7 @@ export default function App() {
 
   // Find the selected client survey if any is active
   const activeClientSurvey = clientPortalSession && selectedClientSurveyId
-    ? surveys.find(s => s.id === selectedClientSurveyId && s.active)
+    ? surveys.find(s => s.id === selectedClientSurveyId && s.active && !s.deleted)
     : null;
 
   return (
@@ -1990,9 +2018,9 @@ export default function App() {
                     >
                       <MessageSquare size={14} />
                       <span>Encuestas</span>
-                      {surveys.filter(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length > 0 && (
+                      {surveys.filter(s => s.active && !s.deleted && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length > 0 && (
                         <span className="absolute -top-1 right-2 bg-rose-500 text-white font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white animate-pulse font-bold">
-                          {surveys.filter(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length}
+                          {surveys.filter(s => s.active && !s.deleted && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length}
                         </span>
                       )}
                     </button>
@@ -2061,9 +2089,9 @@ export default function App() {
                             </div>
 
                             {/* List of active surveys */}
-                            {surveys.filter(s => s.active).length > 0 ? (
+                            {surveys.filter(s => s.active && !s.deleted).length > 0 ? (
                               <div className="space-y-3">
-                                {surveys.filter(s => s.active).map(s => {
+                                {surveys.filter(s => s.active && !s.deleted).map(s => {
                                   const isAnswered = localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) === 'true';
                                   const questionsCount = s.questions ? s.questions.length : 1;
                                   
