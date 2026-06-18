@@ -1044,11 +1044,23 @@ export default function MerchantReportsTabPanel({
       generalConclusion = `Se configuraron ${totalSurveys} formatos de encuestas con recompensas como cupones y sellos extras en el sistema. Los indicadores dinámicos y la conclusión de mercadeo se autopoblarán en tiempo real tan pronto los primeros socios completen el cuestionario.`;
     }
 
-    const actionableInsights = [
-      'Utilizar los cupones configurados como incentivo principal para expandir la recopilación de datos.',
-      'Analizar las preferencias de sabor o atención recurrentes para afinar lanzamientos de productos de temporada.',
-      'Alinear la atención de baristas con las horas de mayor canje de recompensas reportadas en las estadísticas.',
-    ];
+    const actionableInsights: string[] = [];
+    const realOpps = keyOpportunities.filter(op => 
+      !op.includes('Continuar recopilando') && 
+      !op.includes('Configuración exitosa') &&
+      !op.includes('Monitoreo activo')
+    );
+    if (realOpps.length > 0) {
+      realOpps.forEach(op => {
+        const cleanOp = op.trim().replace(/^•\s*/, '').replace(/^(Prestar atención en |Área de mejora en |Foco de atención en |Sugerencia de optimización en )/, '');
+        actionableInsights.push(`Diseñar un protocolo específico con el personal de servicio para mitigar el impacto detectado en: ${cleanOp.charAt(0).toLowerCase() + cleanOp.slice(1)}`);
+      });
+    }
+    if (actionableInsights.length === 0) {
+      actionableInsights.push('Establecer recordatorios ágiles al momento del registro de visitas para incentivar una mayor recolección de retroalimentación de socios.');
+      actionableInsights.push('Implementar dinámicas de incentivos que vinculen los cupones existentes con las respuestas de los clientes en tiempo real.');
+      actionableInsights.push('Monitorear recurrentemente el panel de opinión para identificar variaciones estacionales en la percepción del servicio.');
+    }
 
     return {
       acceptanceScore,
@@ -1378,80 +1390,94 @@ export default function MerchantReportsTabPanel({
 
         y += 24;
 
-        // Container Box for AI Marketing Report
-        doc.setFillColor(250, 252, 250);
-        doc.setDrawColor(186, 230, 224); // light teal borders
-        doc.rect(10, y, 190, 100, 'FD');
-        
-        y += 7;
+        // --- SECTION Header: Conclusión Generativa ---
         doc.setFontSize(9.5);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(20, 115, 105);
-        doc.text('✨ CONCLUSIÓN GENERATIVA DE MERCADEO Y EVALUACIÓN SENSORIAL', 14, y);
-        
+        doc.text('✨ CONCLUSIÓN GENERATIVA DE MERCADEO Y EVALUACIÓN SENSORIAL', 12, y);
         y += 5;
-        doc.setFontSize(8.5);
+
+        doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(51, 65, 85);
-        doc.text(`Estatus Promedio del Club: ${marketing.satisfactionLevel.toUpperCase()} (Puntuación de Cohesión: ${marketing.acceptanceScore}/100)`, 14, y);
-        
-        // Print general conclusion with split text to wrapping lines
+        doc.text(`Estatus Promedio del Club: ${marketing.satisfactionLevel.toUpperCase()} (Puntuación de Cohesión: ${marketing.acceptanceScore}/100)`, 12, y);
         y += 5;
+
+        // Print general conclusion with split text to wrapping lines
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(71, 85, 105);
-        const wrappedConclusion = doc.splitTextToSize(marketing.generalConclusion, 180);
+        const wrappedConclusion = doc.splitTextToSize(marketing.generalConclusion, 185);
         wrappedConclusion.forEach((line: string) => {
-          doc.text(line, 14, y);
+          if (y > 275) { doc.addPage(); y = 15; }
+          doc.text(line, 12, y);
           y += 4;
         });
 
-        y += 2;
+        y += 5;
 
-        // Draw Key Strengths (Fortalezas)
+        // --- SECTION: Key Strengths (Fortalezas) ---
+        if (y > 250) { doc.addPage(); y = 15; }
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(21, 128, 61); // green
-        doc.text('✔ PRINCIPALES FORTALEZAS DEL RECORRIDO:', 14, y);
+        doc.text('✔ PRINCIPALES FORTALEZAS DEL CLUB:', 12, y);
         y += 5;
+
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(51, 65, 85);
         marketing.keyStrengths.forEach((str) => {
-          doc.text(`• ${str}`, 16, y);
-          y += 4.5;
+          if (y > 275) { doc.addPage(); y = 15; }
+          const wrappedStr = doc.splitTextToSize(`• ${str}`, 185);
+          wrappedStr.forEach((line: string) => {
+            doc.text(line, 14, y);
+            y += 4.5;
+          });
         });
 
-        y += 1;
+        y += 4;
 
-        // Draw Key Opportunities (Oportunidades de mejora)
+        // --- SECTION: Key Opportunities (Oportunidades de mejora) ---
+        if (y > 250) { doc.addPage(); y = 15; }
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(194, 65, 12); // brown/orange
-        doc.text('⚠ OPORTUNIDADES CRÍTICAS DETECTADAS:', 14, y);
+        doc.text('⚠ OPORTUNIDADES CRÍTICAS DETECTADAS:', 12, y);
         y += 5;
+
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(51, 65, 85);
         marketing.keyOpportunities.forEach((op) => {
-          doc.text(`• ${op}`, 16, y);
-          y += 4.5;
+          if (y > 275) { doc.addPage(); y = 15; }
+          const wrappedOp = doc.splitTextToSize(`• ${op}`, 185);
+          wrappedOp.forEach((line: string) => {
+            doc.text(line, 14, y);
+            y += 4.5;
+          });
         });
 
-        y += 1;
+        y += 4;
 
-        // Actionable Insights
+        // --- SECTION: Actionable Insights / Sugerencias ---
+        if (y > 250) { doc.addPage(); y = 15; }
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(79, 70, 229); // indigo
-        doc.text('🚀 ACCIONES ESTRATÉGICAS SUGERIDAS (RECOMENDACIÓN AI):', 14, y);
+        doc.text('🚀 ACCIONES ESTRATÉGICAS SUGERIDAS (RECOMENDACIÓN AI):', 12, y);
         y += 5;
+
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(51, 65, 85);
         marketing.actionableInsights.forEach((ins) => {
-          doc.text(`• ${ins}`, 16, y);
-          y += 4.5;
+          if (y > 275) { doc.addPage(); y = 15; }
+          const wrappedIns = doc.splitTextToSize(`• ${ins}`, 185);
+          wrappedIns.forEach((line: string) => {
+            doc.text(line, 14, y);
+            y += 4.5;
+          });
         });
 
         // Break page to print separate Surveys responses details and their on-page answer distribution charts!
@@ -1548,46 +1574,73 @@ export default function MerchantReportsTabPanel({
               y += 2;
             }
 
-            addText('Comentarios y respuestas detalladas de clientes:', 15, 8, { fontStyle: 'bold' });
-            y += 5;
+            addText('Respuestas y comentarios detallados por socio:', 15, 9, { fontStyle: 'bold' });
+            y += 6;
 
             answersForThisSurvey.forEach((ans) => {
-              if (y > 265) {
+              if (y > 260) {
                 doc.addPage();
                 y = 15;
               }
 
-              doc.setFillColor(254, 254, 254);
-              doc.rect(15, y, 180, 12, 'F');
-              doc.setDrawColor(241, 245, 249);
-              doc.rect(15, y, 180, 12, 'S');
+              // Divider line
+              doc.setDrawColor(226, 232, 240);
+              doc.setLineWidth(0.5);
+              doc.line(15, y, 195, y);
 
               y += 4;
-              doc.setFontSize(7.5);
+              doc.setFontSize(8);
               doc.setFont('helvetica', 'bold');
-              doc.setTextColor(51, 65, 85);
-              doc.text(`${ans.customerName} (Folio ${ans.customerFolio})`, 18, y);
+              doc.setTextColor(30, 41, 59);
+              doc.text(`Socio: ${ans.customerName || 'Socio'} (Folio: ${ans.customerFolio || 'N/A'})`, 16, y);
+              
               doc.setFont('helvetica', 'normal');
               doc.setFontSize(7);
-              doc.text(`Fecha: ${new Date(ans.timestamp).toLocaleDateString('es-MX')}`, 140, y);
+              doc.setTextColor(148, 163, 184);
+              doc.text(`Fecha: ${new Date(ans.timestamp).toLocaleDateString('es-MX')} ${new Date(ans.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`, 140, y);
 
-              let answersStr = '';
-              if (ans.answers && ans.answers.length > 0) {
-                answersStr = ans.answers.map(a => `${a.questionText.substring(0, 30)}...: ${a.answerText}`).join('  |  ');
+              y += 5;
+
+              const qs = ans.answers || [];
+              if (qs.length === 0) {
+                if (y > 270) { doc.addPage(); y = 15; }
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(7.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text('• Formulario guardado sin respuestas individuales.', 18, y);
+                y += 5;
               } else {
-                answersStr = `Respuesta general: ${ans.answers?.[0]?.answerText || 'Completada'}`;
-              }
+                qs.forEach((item) => {
+                  const qLine = `P: ${item.questionText}`;
+                  const ansLine = `R: ${item.answerText || 'Sin respuesta'}`;
 
-              if (answersStr.length > 115) {
-                answersStr = answersStr.substring(0, 112) + '...';
-              }
-              
-              y += 4;
-              doc.setFontSize(7);
-              doc.setTextColor(100, 116, 139);
-              doc.text(answersStr, 18, y);
+                  const wrappedQ = doc.splitTextToSize(qLine, 175);
+                  const wrappedAns = doc.splitTextToSize(ansLine, 175);
 
-              y += 7;
+                  // Print wrapped Question
+                  doc.setFont('helvetica', 'bold');
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(71, 85, 105);
+                  wrappedQ.forEach((line: string) => {
+                    if (y > 270) { doc.addPage(); y = 15; }
+                    doc.text(line, 18, y);
+                    y += 4;
+                  });
+
+                  // Print wrapped Answer
+                  doc.setFont('helvetica', 'normal');
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(15, 23, 42);
+                  wrappedAns.forEach((line: string) => {
+                    if (y > 270) { doc.addPage(); y = 15; }
+                    doc.text(line, 20, y);
+                    y += 4;
+                  });
+
+                  y += 1.5; // inner padding
+                });
+              }
+              y += 3; // outer margin per partner
             });
             y += 3;
           }
