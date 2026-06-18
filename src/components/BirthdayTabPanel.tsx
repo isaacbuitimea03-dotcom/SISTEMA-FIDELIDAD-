@@ -1,14 +1,52 @@
 import React, { useState } from 'react';
-import { Gift, Calendar, Share2, Copy, Check, Lock } from 'lucide-react';
-import { RegisteredCustomer } from '../types';
+import { Gift, Calendar, Share2, Copy, Check, Lock, Phone, UserCheck, TrendingUp } from 'lucide-react';
+import { RegisteredCustomer, Clerk } from '../types';
 
 interface BirthdayTabPanelProps {
   customers: RegisteredCustomer[];
+  clerks?: Clerk[];
+  onConfirmBirthdayCall?: (customerFolio: string, clerkCode: string, clerkName: string) => Promise<void>;
 }
 
-export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
+export default function BirthdayTabPanel({ 
+  customers, 
+  clerks = [], 
+  onConfirmBirthdayCall 
+}: BirthdayTabPanelProps) {
   const [innerTab, setInnerTab] = useState<'proximos' | 'mes'>('proximos');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Simulated birthday customer for live tests
+  const [simulatedCustomer, setSimulatedCustomer] = useState<RegisteredCustomer | null>(null);
+
+  // State for PIN verification
+  const [pinInputs, setPinInputs] = useState<Record<string, string>>({});
+  const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
+  const [loadingFolio, setLoadingFolio] = useState<string | null>(null);
+
+  const getTodayBirthdayString = () => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `1995-${mm}-${dd}`;
+  };
+
+  const handleToggleSimulation = () => {
+    if (simulatedCustomer) {
+      setSimulatedCustomer(null);
+    } else {
+      setSimulatedCustomer({
+        folio: 'SIMULATION-Sofía Mendoza',
+        name: 'Sofía Mendoza (Prueba de Cumpleaños)',
+        phone: '+52 662 123 4567',
+        birthday: getTodayBirthdayString(),
+        currentStamps: 5,
+        points: 25,
+        unlockedVouchers: [],
+        visitsHistory: []
+      });
+    }
+  };
 
   const getSpanishMonthName = (monthIdx: number) => {
     const months = [
@@ -51,14 +89,20 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
     };
   };
 
-  const analyzed = customers
+  const currentYear = new Date().getFullYear();
+
+  const allCustomers = simulatedCustomer ? [simulatedCustomer, ...customers] : customers;
+
+  const analyzed = allCustomers
     .map(c => ({ customer: c, bday: getBirthdayAnalysis(c) }))
     .filter(item => item.bday !== null) as Array<{ customer: RegisteredCustomer; bday: NonNullable<ReturnType<typeof getBirthdayAnalysis>> }>;
 
-  // Sort by days left
-  const sortedUpcoming = [...analyzed].sort((a, b) => a.bday.daysLeft - b.bday.daysLeft);
+  // Filter out those who have already been called this year from active listing
+  const sortedUpcoming = [...analyzed]
+    .filter(item => item.customer.lastBirthdayCallYear !== currentYear)
+    .sort((a, b) => a.bday.daysLeft - b.bday.daysLeft);
 
-  // Group by month
+  // Group by month (include everyone but note called status)
   const monthlyGroups: Record<number, typeof analyzed> = {};
   for (let m = 0; m < 12; m++) {
     monthlyGroups[m] = [];
@@ -67,8 +111,12 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
     monthlyGroups[item.bday.month].push(item);
   });
 
+  // Calculate stats based on full analyzed list
   const upcomingThisWeek = sortedUpcoming.filter(item => item.bday.daysLeft <= 7);
   const upcomingThisMonth = sortedUpcoming.filter(item => item.bday.daysLeft <= 30);
+
+  // Today's pending calls (has birthday today AND hasn't been called this year)
+  const pendingCallsToday = analyzed.filter(item => item.bday.daysLeft === 0 && item.customer.lastBirthdayCallYear !== currentYear);
 
   const bdayTemplate = localStorage.getItem('mi_cafecito_bday_template') || 
     '¡Hola, {nombre}! 🥳 Te saludamos de parte de tu cafetería favorita "Mi Cafecito" ☕. ¡Feliz Cumpleaños! Hoy en tu día especial ({fecha}) queremos consentirte. Visítanos en el Bistro hoy y te regalaremos una deliciosa rebanada de pastel gratis en tu consumo 🍰✨. ¡Presenta tu tarjeta con el folio #{folio}! 🎉';
@@ -98,6 +146,57 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
     window.open(url, '_blank');
   };
 
+  const handlePinChange = (folio: string, val: string) => {
+    setPinInputs(prev => ({ ...prev, [folio]: val }));
+    setPinErrors(prev => ({ ...prev, [folio]: '' }));
+  };
+
+  const handleConfirmCall = async (folio: string, customerName: string) => {
+    const pin = pinInputs[folio] || '';
+    if (!pin.trim()) {
+      setPinErrors(prev => ({ ...prev, [folio]: 'Digita tu clave PIN' }));
+      return;
+    }
+
+    // Verify clock/clerk
+    const matchedClerk = clerks.find(c => c.pin === pin) || 
+                         (pin === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General' } : null);
+
+    if (!matchedClerk) {
+      setPinErrors(prev => ({ ...prev, [folio]: 'Clave PIN incorrecta' }));
+      return;
+    }
+
+    setLoadingFolio(folio);
+    try {
+      if (onConfirmBirthdayCall) {
+        await onConfirmBirthdayCall(folio, matchedClerk.code, matchedClerk.name);
+      }
+
+      // If it's a simulated call, update its local year state so it is removed from the pending alerts
+      if (folio.startsWith('SIMULATION-')) {
+        setSimulatedCustomer(prev => prev ? { ...prev, lastBirthdayCallYear: currentYear } : null);
+      }
+
+      // Success: clear fields
+      setPinInputs(prev => {
+        const u = { ...prev };
+        delete u[folio];
+        return u;
+      });
+      setPinErrors(prev => {
+        const u = { ...prev };
+        delete u[folio];
+        return u;
+      });
+    } catch (e) {
+      console.error(e);
+      setPinErrors(prev => ({ ...prev, [folio]: 'Error de conexión' }));
+    } finally {
+      setLoadingFolio(null);
+    }
+  };
+
   const currentMonthIdx = new Date().getMonth(); // Dynamic current month index
 
   return (
@@ -109,7 +208,7 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
             <Gift size={20} />
           </div>
           <div>
-            <p className="text-[11px] font-sans text-slate-500 uppercase tracking-widest font-bold">Esta Semana</p>
+            <p className="text-[11px] font-sans text-slate-500 uppercase tracking-widest font-bold">Hoy y esta Semana</p>
             <h4 className="text-xl font-serif font-black text-slate-800">{upcomingThisWeek.length} Cumpleaños</h4>
           </div>
         </div>
@@ -127,36 +226,132 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
         {/* Total birthdays metric card */}
         <div className="bg-blue-50/50 border border-blue-150 rounded-2xl p-4 flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center">
-            <Gift size={20} />
+            <Phone size={20} />
           </div>
           <div>
-            <p className="text-[11px] font-sans text-slate-500 uppercase tracking-widest font-bold">Total con Cumpleaños</p>
-            <h4 className="text-xl font-serif font-black text-slate-800">{analyzed.length} Clientes</h4>
+            <p className="text-[11px] font-sans text-slate-500 uppercase tracking-widest font-bold">Pendientes de llamar hoy</p>
+            <h4 className="text-xl font-serif font-black text-slate-800">{pendingCallsToday.length} Cumpleaños</h4>
           </div>
         </div>
       </div>
 
-      {/* Switcher tabs */}
-      <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full max-w-sm gap-1 self-start">
+      {/* ALERT BOX FOR ACTIVE BIRTHDAY TODAY (Prevention of shift double call) */}
+      {pendingCallsToday.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-500/30 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="p-1 rounded-lg bg-amber-500 text-white animate-pulse">
+              <Phone size={18} />
+            </span>
+            <h3 className="font-serif font-black text-base text-amber-900">
+              Llamadas de Cumpleaños Pendientes (Evitar Doble Llamada)
+            </h3>
+          </div>
+          
+          <p className="text-xs text-amber-800/90 leading-relaxed font-sans font-medium">
+            ¡Hoy cumple años un cliente! Para evitar que el turno matutino y vespertino le marquen dos veces debido a la falta de comunicación, confirma la llamada aquí ingresando tu PIN de encargado.
+          </p>
+
+          <div className="space-y-3.5 mt-2">
+            {pendingCallsToday.map(({ customer, bday }) => {
+              const folio = customer.folio;
+              const error = pinErrors[folio];
+              const pinVal = pinInputs[folio] || '';
+              const isLoading = loadingFolio === folio;
+
+              return (
+                <div key={folio} className="bg-white/80 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                        #{customer.folio}
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-900">{customer.name}</h4>
+                    </div>
+                    <p className="text-xs text-slate-600 font-medium">
+                      📱 Teléfono: <strong className="text-[#149b8f] font-mono text-sm">{customer.phone}</strong>
+                    </p>
+                  </div>
+
+                  {/* Call Confirmation Input with Clerk Pin */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="relative">
+                      <input 
+                        type="password"
+                        placeholder="Clave PIN Encargado"
+                        value={pinVal}
+                        onChange={(e) => handlePinChange(folio, e.target.value)}
+                        className={`text-xs px-3 py-2 border rounded-xl w-full sm:w-44 focus:outline-none focus:ring-1 focus:ring-[#149b8f] ${
+                          error ? 'border-red-500' : 'border-slate-200'
+                        }`}
+                        maxLength={10}
+                      />
+                      {error && (
+                        <p className="absolute left-1 -bottom-4 text-[9px] text-red-500 font-bold whitespace-nowrap">{error}</p>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => handleConfirmCall(folio, customer.name)}
+                      disabled={isLoading}
+                      className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                    >
+                      <UserCheck size={14} />
+                      {isLoading ? 'Registrando...' : 'Confirmar Llamada'}
+                    </button>
+                    
+                    <button
+                      onClick={() => handleSendWhatsApp(customer.name, customer.phone, customer.folio, bday.label)}
+                      className="px-3 py-2 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor">
+                        <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.713-1.458L0 24zm6.59-4.846c1.6.95 3.1 1.45 4.7 1.45 5.515 0 10.002-4.48 10.005-9.998.002-2.673-1.04-5.186-2.936-7.087-1.895-1.9-4.41-2.946-7.086-2.947-5.518 0-10.005 4.477-10.008 9.995-.001 2 .526 3.96 1.53 5.7l-.37 1.34 1.397-.365zm10.825-7.41c-.29-.145-1.713-.845-1.978-.94-.265-.1-.458-.145-.65.145-.19.29-.74.94-.908 1.135-.166.19-.335.215-.625.07-.29-.145-1.225-.45-2.333-1.442-.862-.77-1.443-1.72-1.611-2.01-.168-.29-.018-.45.127-.59.13-.125.29-.34.436-.51.145-.165.19-.29.29-.48.1-.19.05-.355-.025-.5-.075-.145-.65-1.566-.89-2.14-.233-.56-.47-.482-.65-.492-.17-.008-.363-.01-.555-.01-.19 0-.5.07-.76.355-.26.29-1 .98-1 2.39 0 1.41 1.025 2.78 1.17 2.97.145.19 2.015 3.077 4.88 4.32.68.29 1.21.465 1.625.596.685.22 1.31.19 1.8.116.546-.08 1.712-.7 1.954-1.378.24-.678.24-1.26.17-1.38-.076-.12-.27-.19-.56-.335z" />
+                      </svg>
+                      Enviar WhatsApp
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Switcher tabs & Simulation controls */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded-2xl border border-slate-200/60">
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 w-full max-w-sm gap-1 shrink-0">
+          <button
+            onClick={() => setInnerTab('proximos')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              innerTab === 'proximos'
+                ? 'bg-white text-[#149b8f] shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            ⏰ Próximos (Pendientes)
+          </button>
+          <button
+            onClick={() => setInnerTab('mes')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              innerTab === 'mes'
+                ? 'bg-white text-[#149b8f] shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            📂 Calendario por Mes
+          </button>
+        </div>
+
         <button
-          onClick={() => setInnerTab('proximos')}
-          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            innerTab === 'proximos'
-              ? 'bg-white text-[#149b8f] shadow-sm'
-              : 'text-slate-500 hover:text-slate-800'
+          onClick={handleToggleSimulation}
+          className={`px-4 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
+            simulatedCustomer 
+              ? 'bg-red-500 hover:bg-red-600 text-white border-red-500' 
+              : 'bg-white hover:bg-[#149b8f]/5 text-[#149b8f] border-[#149b8f]/30 hover:border-[#149b8f]/60'
           }`}
+          title="Simula un cliente que cumple años hoy para verificar cómo se previene la duplicidad de llamadas"
         >
-          ⏰ Próximos
-        </button>
-        <button
-          onClick={() => setInnerTab('mes')}
-          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            innerTab === 'mes'
-              ? 'bg-white text-[#149b8f] shadow-sm'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          📂 Por Mes
+          <span className={`w-2.5 h-2.5 rounded-full ${simulatedCustomer ? 'bg-white animate-ping' : 'bg-[#149b8f]'}`}></span>
+          {simulatedCustomer ? '❌ Quitar Simulación' : '🧪 Simular Cumpleañero Hoy'}
         </button>
       </div>
 
@@ -168,7 +363,7 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
           </div>
 
           {sortedUpcoming.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-6">No hay registros de cumpleaños disponibles.</p>
+            <p className="text-sm text-slate-400 text-center py-6">No hay registros de cumpleaños pendientes de llamada.</p>
           ) : (
             <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto pr-1">
               {sortedUpcoming.slice(0, 30).map(({ customer, bday }) => {
@@ -276,16 +471,24 @@ export default function BirthdayTabPanel({ customers }: BirthdayTabPanelProps) {
                   <p className="text-xs text-slate-400 italic py-5 text-center">Nadie registrado en este mes.</p>
                 ) : (
                   <div className="mt-3.5 space-y-2.5 max-h-[160px] overflow-y-auto pr-1">
-                    {monthsCustomers.map(({ customer, bday }) => (
-                      <div key={customer.folio} className="flex justify-between items-center text-xs">
-                        <span className="font-medium text-slate-700 truncate max-w-[120px]" title={customer.name}>
-                          {customer.name}
-                        </span>
-                        <span className="text-slate-400 font-mono text-[10px]">
-                          Día {bday.day} (#{customer.folio})
-                        </span>
-                      </div>
-                    ))}
+                    {monthsCustomers.map(({ customer, bday }) => {
+                      const isBdayCalledThisYear = customer.lastBirthdayCallYear === currentYear;
+                      return (
+                        <div key={customer.folio} className="flex justify-between items-center text-xs">
+                          <span className={`font-medium truncate max-w-[120px] ${isBdayCalledThisYear ? 'text-slate-400 line-through' : 'text-slate-700'}`} title={customer.name}>
+                            {customer.name}
+                          </span>
+                          <span className="text-slate-400 font-mono text-[10px] flex items-center gap-1">
+                            {isBdayCalledThisYear ? (
+                              <span className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded text-[9px]">📞 Sí</span>
+                            ) : (
+                              <span>Día {bday.day}</span>
+                            )}
+                            <span>(#{customer.folio})</span>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

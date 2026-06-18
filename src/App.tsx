@@ -24,6 +24,7 @@ import BirthdayTabPanel from './components/BirthdayTabPanel';
 import MerchantReportsTabPanel from './components/MerchantReportsTabPanel';
 import CustomerCard from './components/CustomerCard';
 import ClientSurveyWizard from './components/ClientSurveyWizard';
+import ConsumerSurveysPortal from './components/encuestas/ConsumerSurveysPortal';
 import { MiCafecitoLogo } from './components/MiCafecitoLogo';
 import CustomerNotificationCenter from './components/CustomerNotificationCenter';
 
@@ -35,7 +36,62 @@ import {
 } from './utils/firebase';
 import { getDocs, collection, doc, deleteDoc } from 'firebase/firestore';
 
-const INITIAL_SURVEYS: Survey[] = [];
+const INITIAL_SURVEYS: Survey[] = [
+  {
+    id: 'srv_default_choice_1',
+    title: 'Calidad del Café y Repostería - Encuesta Bistro',
+    isCampaign: true,
+    active: true,
+    submissionsCount: 0,
+    reward: '1 Sello de Fidelidad',
+    questions: [
+      {
+        id: 'q1',
+        text: '¿Cómo calificarías el sabor y temperatura de nuestro café espresso o lattes?',
+        type: 'multiple',
+        options: ['Excelente (sabor perfecto)', 'Bueno', 'Regular', 'Requiere mejorar']
+      },
+      {
+        id: 'q2',
+        text: '¿Qué te parece la variedad y frescura de nuestra repostería y panes del día?',
+        type: 'multiple',
+        options: ['Excelente (variedad fresca)', 'Aceptable', 'Regular', 'Poca selección']
+      },
+      {
+        id: 'q3',
+        text: '¿Tienes alguna recomendación en particular sobre nuestros postres o bebidas bistro?',
+        type: 'open'
+      }
+    ]
+  },
+  {
+    id: 'srv_default_choice_2',
+    title: 'Experiencia de Servicio y Tiempos de Entrega',
+    isCampaign: true,
+    active: true,
+    submissionsCount: 0,
+    reward: '150 Puntos de Regalo',
+    questions: [
+      {
+        id: 'qa1',
+        text: '¿Cómo calificarías la amabilidad y atención de nuestros cajeros y baristas?',
+        type: 'multiple',
+        options: ['Excelente y muy atentos', 'Bueno/Normal', 'Apático o poco atento', 'Mala atención']
+      },
+      {
+        id: 'qa2',
+        text: '¿Qué tan rápido recibiste tu pedido de café y alimentos?',
+        type: 'multiple',
+        options: ['Muy rápido (< 5 minutos)', 'Tiempo aceptable (5-10 minutos)', 'Lento (> 10 minutos)', 'Demasiado tardado']
+      },
+      {
+        id: 'qa3',
+        text: '¿Cómo podemos hacer que tu experiencia de compra sea perfecta?',
+        type: 'open'
+      }
+    ]
+  }
+];
 
 const INITIAL_SURVEY_ANSWERS: SurveyAnswer[] = [];
 
@@ -558,35 +614,40 @@ export default function App() {
   };
 
   const syncSetSurveys = async (updater: React.SetStateAction<Survey[]>) => {
-    let nextVal: Survey[];
-    if (typeof updater === 'function') {
-      nextVal = (updater as Function)(surveys);
-    } else {
-      nextVal = updater;
-    }
+    setSurveys((prevSurveys) => {
+      let nextVal: Survey[];
+      if (typeof updater === 'function') {
+        nextVal = (updater as Function)(prevSurveys);
+      } else {
+        nextVal = updater;
+      }
 
-    const oldKeys = new Set(surveys.map(s => s.id));
-    const newKeys = new Set(nextVal.map(s => s.id));
+      // Perform async Firestore operations in the background to avoid blocking and state mismatch
+      setTimeout(async () => {
+        const oldKeys = new Set(prevSurveys.map(s => s.id));
+        const newKeys = new Set(nextVal.map(s => s.id));
 
-    for (const s of surveys) {
-      if (!newKeys.has(s.id)) {
-        try {
-          await deleteDoc(doc(db, 'surveys', s.id));
-        } catch (e) {
-          console.error(e);
+        for (const s of prevSurveys) {
+          if (!newKeys.has(s.id)) {
+            try {
+              await deleteDoc(doc(db, 'surveys', s.id));
+            } catch (e) {
+              console.error(e);
+            }
+          }
         }
-      }
-    }
 
-    for (const s of nextVal) {
-      try {
-        await dbSaveSurvey(s);
-      } catch (e) {
-        console.error(e);
-      }
-    }
+        for (const s of nextVal) {
+          try {
+            await dbSaveSurvey(s);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }, 0);
 
-    setSurveys(nextVal);
+      return nextVal;
+    });
   };
 
   const syncSetCLERKS = async (updater: React.SetStateAction<Clerk[]>) => {
@@ -679,9 +740,35 @@ export default function App() {
     const pName = window.location.pathname.toLowerCase();
     const hashVal = window.location.hash.toLowerCase();
     const queryVal = window.location.search.toLowerCase();
-    return pName.includes('fidelidad') || pName.includes('cliente') || 
-           hashVal.includes('fidelidad') || hashVal.includes('cliente') ||
-           queryVal.includes('fidelidad') || queryVal.includes('cliente');
+    
+    // Prevent AI Studio iframe from getting stuck in consumer survey page on fresh load or recompile
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+    if (isIframe && (hashVal.includes('portal_encuestas') || hashVal.includes('encuesta_portal'))) {
+      try {
+        window.location.hash = '';
+      } catch (e) {}
+      return false;
+    }
+
+    return pName.includes('fidelidad') || pName.includes('cliente') || pName.includes('encuesta') || pName.includes('clientes') ||
+           hashVal.includes('fidelidad') || hashVal.includes('cliente') || hashVal.includes('encuesta') || hashVal.includes('clientes') ||
+           queryVal.includes('fidelidad') || queryVal.includes('cliente') || queryVal.includes('encuesta') || queryVal.includes('clientes');
+  });
+
+  const [isPublicSurveyPortal, setIsPublicSurveyPortal] = useState<boolean>(() => {
+    const hash = window.location.hash.toLowerCase();
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+    if (isIframe && (hash.includes('portal_encuestas') || hash.includes('encuesta_portal'))) {
+      return false;
+    }
+    return hash.includes('portal_encuestas') || hash.includes('encuesta_portal');
+  });
+
+  // Client Active Tab state for custom navigation inside the portal (Tarjeta vs Encuestas)
+  const [clientActiveTab, setClientActiveTab] = useState<'tarjeta' | 'encuestas'>(() => {
+    const hash = window.location.hash.toLowerCase();
+    if (hash.includes('encuesta') && !hash.includes('portal_encuestas') && !hash.includes('encuesta_portal')) return 'encuestas';
+    return 'tarjeta';
   });
 
   useEffect(() => {
@@ -689,10 +776,19 @@ export default function App() {
       const pName = window.location.pathname.toLowerCase();
       const hashVal = window.location.hash.toLowerCase();
       const queryVal = window.location.search.toLowerCase();
-      const checkClient = pName.includes('fidelidad') || pName.includes('cliente') || 
-                          hashVal.includes('fidelidad') || hashVal.includes('cliente') ||
-                          queryVal.includes('fidelidad') || queryVal.includes('cliente');
+      const checkClient = pName.includes('fidelidad') || pName.includes('cliente') || pName.includes('encuesta') || pName.includes('clientes') ||
+                          hashVal.includes('fidelidad') || hashVal.includes('cliente') || hashVal.includes('encuesta') || hashVal.includes('clientes') ||
+                          queryVal.includes('fidelidad') || queryVal.includes('cliente') || queryVal.includes('encuesta') || queryVal.includes('clientes');
       setIsClientMode(checkClient);
+
+      const isPublic = hashVal.includes('portal_encuestas') || hashVal.includes('encuesta_portal');
+      setIsPublicSurveyPortal(isPublic);
+
+      if (hashVal.includes('encuesta') && !isPublic) {
+        setClientActiveTab('encuestas');
+      } else if (hashVal.includes('fidelidad') || hashVal.includes('cliente') || hashVal.includes('tarjeta')) {
+        setClientActiveTab('tarjeta');
+      }
     };
     window.addEventListener('popstate', handleLocationChange);
     window.addEventListener('hashchange', handleLocationChange);
@@ -723,6 +819,15 @@ export default function App() {
   const [clientBdayInput, setClientBdayInput] = useState('');
   const [clientPortalSession, setClientPortalSession] = useState<UserSession | null>(null);
   const [clientPortalError, setClientPortalError] = useState('');
+  const [selectedClientSurveyId, setSelectedClientSurveyId] = useState<string | null>(null);
+
+  // On-the-fly survey login/register states
+  const [surveyToIdentifyId, setSurveyToIdentifyId] = useState<string | null>(null);
+  const [surveyLookupPhone, setSurveyLookupPhone] = useState('');
+  const [surveyLookupBday, setSurveyLookupBday] = useState('');
+  const [surveyLookupName, setSurveyLookupName] = useState('');
+  const [showSurveyRegisterFields, setShowSurveyRegisterFields] = useState(false);
+  const [surveyLookupError, setSurveyLookupError] = useState('');
 
   // Mobile app notifications push simulation state
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -1020,6 +1125,136 @@ export default function App() {
     }
   };
 
+  // On-the-fly survey login/register submit handler
+  const handleSurveyGatewaySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPhone = surveyLookupPhone.replace(/\D/g, '');
+    
+    if (!cleanPhone || cleanPhone.length < 10) {
+      setSurveyLookupError('Por favor ingresa un celular válido a 10 dígitos.');
+      return;
+    }
+
+    if (!surveyLookupBday) {
+      setSurveyLookupError('Por favor selecciona tu fecha de nacimiento.');
+      return;
+    }
+
+    // Attempt lookup
+    const clientFound = consumers.find(c => 
+      c.phone.replace(/\D/g, '') === cleanPhone && c.birthday === surveyLookupBday
+    );
+
+    if (showSurveyRegisterFields) {
+      // REGISTRATION SUBMISSION MODE
+      if (!surveyLookupName.trim()) {
+        setSurveyLookupError('Por favor introduce tu nombre completo.');
+        return;
+      }
+
+      const generatedFolio = generateUnusedFolio();
+      const newCustomerObj: RegisteredCustomer = {
+        folio: generatedFolio,
+        name: surveyLookupName.trim(),
+        phone: cleanPhone,
+        email: `${surveyLookupName.trim().toLowerCase().replace(/\s+/g, '')}@cafecito.com`,
+        birthday: surveyLookupBday,
+        currentStamps: 1, // Welcome stamp!
+        totalStampsEarned: 1,
+        points: 100, // Welcome points!
+        unlockedVouchers: [],
+        visitsHistory: []
+      };
+
+      // Add to database
+      syncSetConsumers(prev => [newCustomerObj, ...prev]);
+
+      // Create log
+      const logRecord: ActivityLog = {
+        id: 'log_' + Date.now(),
+        type: 'stamp_added', // standard supported type
+        amount: 1,
+        title: `Auto-Registro #${generatedFolio}`,
+        description: `Socio ${newCustomerObj.name} se registró de forma digital al contestar encuesta.`,
+        timestamp: new Date().toISOString(),
+        clerkName: 'Auto Registro',
+        clerkCode: 'REG'
+      };
+      syncSetLogs(prevL => [logRecord, ...prevL]);
+
+      // Set session to log them in
+      const ses: UserSession = {
+        id: newCustomerObj.folio,
+        folio: newCustomerObj.folio,
+        name: newCustomerObj.name,
+        email: newCustomerObj.email,
+        phone: newCustomerObj.phone,
+        birthday: newCustomerObj.birthday,
+        currentStamps: newCustomerObj.currentStamps,
+        totalStampsEarned: newCustomerObj.totalStampsEarned,
+        points: newCustomerObj.points,
+        unlockedVouchers: newCustomerObj.unlockedVouchers || []
+      };
+
+      setClientPortalSession(ses);
+      setSelectedClientSurveyId(surveyToIdentifyId);
+      setSurveyToIdentifyId(null);
+      setSurveyLookupPhone('');
+      setSurveyLookupBday('');
+      setSurveyLookupName('');
+      setShowSurveyRegisterFields(false);
+      setSurveyLookupError('');
+      
+      // Navigate to survey wizard
+      setClientActiveTab('encuestas');
+    } else {
+      // LOOKUP MODE
+      if (clientFound) {
+        const ses: UserSession = {
+          id: clientFound.folio,
+          folio: clientFound.folio,
+          name: clientFound.name,
+          email: clientFound.email,
+          phone: clientFound.phone,
+          birthday: clientFound.birthday,
+          currentStamps: clientFound.currentStamps,
+          totalStampsEarned: clientFound.totalStampsEarned,
+          points: clientFound.points,
+          unlockedVouchers: clientFound.unlockedVouchers || []
+        };
+        setClientPortalSession(ses);
+        setSelectedClientSurveyId(surveyToIdentifyId);
+        setSurveyToIdentifyId(null);
+        setSurveyLookupPhone('');
+        setSurveyLookupBday('');
+        setSurveyLookupError('');
+        setClientActiveTab('encuestas');
+      } else {
+        // Not found, check duplicate phone
+        const phoneExists = consumers.some(c => c.phone.replace(/\D/g, '') === cleanPhone);
+        if (phoneExists) {
+          setSurveyLookupError('El celular ingresado ya tiene una tarjeta registrada, pero la fecha de nacimiento no coincide. Por favor ingresa los datos correctos.');
+        } else {
+          // Open registration fields directly
+          setShowSurveyRegisterFields(true);
+        }
+      }
+    }
+  };
+
+  const generateUnusedFolio = (): string => {
+    let attempts = 0;
+    while (attempts < 100) {
+      const num = Math.floor(Math.random() * 300) + 200; // 200 to 500
+      const folioStr = num.toString().padStart(3, '0');
+      if (!consumers.some(c => c.folio === folioStr)) {
+        return folioStr;
+      }
+      attempts++;
+    }
+    return (Date.now() % 1000).toString().padStart(3, '0');
+  };
+
   // CLIENT SURVEY COMPLETION METHOD
   const handleClientSurveyComplete = (surveyId: string, answers: { questionId: string; questionText: string; answerText: string }[]) => {
     if (!clientPortalSession) return;
@@ -1071,6 +1306,9 @@ export default function App() {
         return c;
       }));
     }
+
+    // Reset current survey selection to return to the survey list
+    setSelectedClientSurveyId(null);
   };
 
   // ADD STAMP ACTION (Clerk Required)
@@ -1167,6 +1405,51 @@ export default function App() {
     } else {
       setStampPinError('La clave PIN de encargado es incorrecta.');
     }
+  };
+
+  // BIRTHDAY CALL CONFIRMATION ACTION
+  const handleConfirmBirthdayCall = async (customerFolio: string, clerkCode: string, clerkName: string) => {
+    let targetCustomerName = '';
+    const isMockSimulation = customerFolio.startsWith('SIMULATION-');
+
+    if (isMockSimulation) {
+      targetCustomerName = customerFolio.replace('SIMULATION-', '');
+    } else {
+      const targetCustomer = consumers.find(c => c.folio === customerFolio);
+      if (!targetCustomer) return;
+      targetCustomerName = targetCustomer.name;
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    const logRecord: ActivityLog = {
+      id: 'log_bday_' + customerFolio + '_' + currentYear + '_' + Date.now(),
+      type: 'birthday_call',
+      amount: 1,
+      title: isMockSimulation ? `Llamada Cumpleañera de Prueba` : `Llamada Cumpleañera #${customerFolio}`,
+      description: `Llamada de felicitación de cumpleaños realizada por ${clerkName} (${clerkCode}) para ${targetCustomerName}.`,
+      timestamp: new Date().toISOString(),
+      clerkName,
+      clerkCode,
+      customerFolio
+    };
+
+    await syncSetLogs([logRecord, ...logs]);
+
+    if (!isMockSimulation) {
+      await syncSetConsumers(prev => prev.map(c => {
+        if (c.folio === customerFolio) {
+          return {
+            ...c,
+            lastBirthdayCallYear: currentYear
+          };
+        }
+        return c;
+      }));
+    }
+
+    setSystemBannerAlert(`¡Llamada de cumpleaños registrada por ${clerkName}!`);
+    setTimeout(() => setSystemBannerAlert(null), 3000);
   };
 
   // DECREASE / OVERRIDE STAMP ACTION WITH CLERK AUTH
@@ -1508,9 +1791,9 @@ export default function App() {
 
   const dashboardUpcomingBdays = getDashboardBirthdaysThisWeek();
 
-  // Find the first active unanswered survey for the logged-in client
-  const activeClientSurvey = clientPortalSession
-    ? surveys.find(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true')
+  // Find the selected client survey if any is active
+  const activeClientSurvey = clientPortalSession && selectedClientSurveyId
+    ? surveys.find(s => s.id === selectedClientSurveyId && s.active)
     : null;
 
   return (
@@ -1552,8 +1835,27 @@ export default function App() {
       </AnimatePresence>
       
       {isClientMode ? (
-        /* ==================== CLIENT STANDALONE WEBSITE (Matching user photo exactly) ==================== */
-        <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10 w-full max-w-full overflow-x-hidden touch-pan-y">
+        isPublicSurveyPortal ? (
+          <ConsumerSurveysPortal
+            surveys={surveys}
+            customers={consumers}
+            onSaveAnswer={async (ans) => {
+              await dbSaveAnswer(ans);
+              setSurveyAnswers(prev => [ans, ...prev]);
+            }}
+            onUpdateSurvey={async (srv) => {
+              await dbSaveSurvey(srv);
+              setSurveys(prev => prev.map(s => s.id === srv.id ? srv : s));
+            }}
+            onBackToGateway={() => {
+              setIsPublicSurveyPortal(false);
+              window.location.hash = '';
+              setIsClientMode(false);
+            }}
+          />
+        ) : (
+          /* ==================== CLIENT STANDALONE WEBSITE (Matching user photo exactly) ==================== */
+          <div className="flex-grow min-h-screen bg-[#F6F9F8] text-slate-800 flex flex-col justify-between items-center px-4 py-12 pointer-events-auto z-10 w-full max-w-full overflow-x-hidden touch-pan-y">
           
           <div className="max-w-md w-full flex-grow flex flex-col justify-center items-center py-6">
             <AnimatePresence mode="wait">
@@ -1571,8 +1873,12 @@ export default function App() {
                     <MiCafecitoLogo size={110} className="shadow-lg rounded-full" />
 
                     <div className="space-y-1">
-                      <h1 className="text-3xl font-serif font-black tracking-tight text-slate-900" style={{ fontFamily: 'Georgia, serif' }}>Mi Cafecito</h1>
-                      <p className="text-xs text-slate-500 font-sans tracking-wide">Consulta tu tarjeta de fidelidad</p>
+                      <h1 className="text-3xl font-serif font-black tracking-tight text-slate-900" style={{ fontFamily: 'Georgia, serif' }}>
+                        Mi Cafecito
+                      </h1>
+                      <p className="text-xs text-slate-500 font-sans tracking-wide">
+                        Consulta tu tarjeta de fidelidad
+                      </p>
                     </div>
                   </div>
 
@@ -1623,25 +1929,29 @@ export default function App() {
                       type="submit"
                       className="w-full py-4 bg-[#2bbba9] hover:bg-[#20a392] active:bg-[#1b8c7c] text-white font-sans font-black rounded-2xl text-sm transition shadow-md shadow-teal-700/10 active:scale-[0.98] cursor-pointer text-center flex items-center justify-center gap-2 uppercase tracking-wide mt-2"
                     >
-                      <span className="font-bold text-sm">Ver mi tarjeta →</span>
+                      <span className="font-bold text-sm">
+                        Ver mi tarjeta →
+                      </span>
                     </button>
                   </form>
                 </motion.div>
-              ) : (activeClientSurvey ? (
+              ) : (
                 <motion.div
-                  key="client-survey-wizard-container"
+                  key="client-portal-interior"
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                   className="w-full max-w-sm space-y-4"
                 >
+                  {/* Top Welcome bar */}
                   <div className="bg-white border border-slate-200 rounded-3xl p-4 flex justify-between items-center shadow-sm text-xs text-slate-500 font-sans">
-                    <span>Socio, <strong className="text-slate-800 font-bold">{clientPortalSession.name}</strong></span>
+                    <span>Bienvenido, <strong className="text-slate-800 font-bold">{clientPortalSession.name}</strong></span>
                     <button
                       onClick={() => {
                         setClientPortalSession(null);
                         setClientPhoneInput('');
                         setClientBdayInput('');
+                        window.location.hash = '';
                       }}
                       className="text-[#2bbba9] hover:text-[#1b8c7c] font-black cursor-pointer text-xs uppercase"
                     >
@@ -1649,52 +1959,186 @@ export default function App() {
                     </button>
                   </div>
 
-                  <ClientSurveyWizard
-                    survey={activeClientSurvey}
-                    customerName={clientPortalSession.name}
-                    onComplete={(answers) => handleClientSurveyComplete(activeClientSurvey.id, answers)}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="client-card-visible"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  className="w-full max-w-sm space-y-5"
-                >
-                  <div className="bg-white border border-slate-200 rounded-3xl p-4 flex justify-between items-center shadow-sm text-xs text-slate-500 font-sans">
-                    <span>Bienvenido socio, <strong className="text-slate-800 font-bold">{clientPortalSession.name}</strong></span>
+                  {/* Navigation Tab bar */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-1.5 flex gap-1 shadow-sm font-sans">
                     <button
+                      type="button"
                       onClick={() => {
-                        setClientPortalSession(null);
-                        setClientPhoneInput('');
-                        setClientBdayInput('');
+                        setClientActiveTab('tarjeta');
+                        window.location.hash = 'fidelidad';
                       }}
-                      className="text-[#2bbba9] hover:text-[#1b8c7c] font-black cursor-pointer text-xs uppercase"
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        clientActiveTab === 'tarjeta'
+                          ? 'bg-[#2bbba9] text-white shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                      }`}
                     >
-                      Cerrar consulta ✕
+                      <Coffee size={14} />
+                      <span>Mi Tarjeta</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClientActiveTab('encuestas');
+                        window.location.hash = 'encuestas';
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 relative cursor-pointer ${
+                        clientActiveTab === 'encuestas'
+                          ? 'bg-[#2bbba9] text-white shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      <MessageSquare size={14} />
+                      <span>Encuestas</span>
+                      {surveys.filter(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length > 0 && (
+                        <span className="absolute -top-1 right-2 bg-rose-500 text-white font-mono text-[9px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white animate-pulse font-bold">
+                          {surveys.filter(s => s.active && localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) !== 'true').length}
+                        </span>
+                      )}
                     </button>
                   </div>
 
-                  <CustomerCard 
-                    session={clientPortalSession}
-                    config={config}
-                    onReset={() => {
-                      alert('Para redenciones o canjes de bebida de cortesía, por favor consulta directamente al cajero autorizado del Bistro de Mi Cafecito.');
-                    }}
-                  />
+                  {/* Sub-tab view container */}
+                  <AnimatePresence mode="wait">
+                    {clientActiveTab === 'tarjeta' ? (
+                      <motion.div
+                        key="tab-tarjeta"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-4"
+                      >
+                        <CustomerCard 
+                          session={clientPortalSession}
+                          config={config}
+                          onReset={() => {
+                            alert('Para redenciones o canjes de bebida de cortesía, por favor consulta directamente al cajero autorizado del Bistro de Mi Cafecito.');
+                          }}
+                        />
 
-                  <CustomerNotificationCenter 
-                    session={clientPortalSession} 
-                    notifications={notifications} 
-                  />
+                        <CustomerNotificationCenter 
+                          session={clientPortalSession} 
+                          notifications={notifications} 
+                        />
 
-                  <p className="text-center text-xs text-slate-400 font-sans px-4 leading-normal">
-                    Toca en el plástico virtual para girarlo y mostrar tu código QR al encargado del Bistro de Mi Cafecito. ¡Muchas gracias por tu visita!
-                  </p>
+                        <p className="text-center text-[11px] text-slate-400 font-sans px-4 leading-normal">
+                          Toca en el plástico virtual para girarlo y mostrar tu código QR al encargado del Bistro de Mi Cafecito. ¡Muchas gracias por tu visita!
+                        </p>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="tab-encuestas"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full space-y-4"
+                      >
+                        {activeClientSurvey ? (
+                          <div className="space-y-4">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClientSurveyId(null)}
+                              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 cursor-pointer flex items-center gap-1 shadow-sm"
+                            >
+                              ← Volver al Centro de Encuestas
+                            </button>
+                            <ClientSurveyWizard
+                              survey={activeClientSurvey}
+                              customerName={clientPortalSession.name}
+                              onComplete={(answers) => handleClientSurveyComplete(activeClientSurvey.id, answers)}
+                            />
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            {/* Header Section */}
+                            <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
+                              <h3 className="text-lg font-serif font-black text-slate-900 leading-tight">Centro de Encuestas</h3>
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                Tu opinión es invaluable. Ayúdanos a mejorar respondiendo nuestras encuestas de satisfacción vigentes y recibe recompensas directo en tu tarjeta.
+                              </p>
+                            </div>
+
+                            {/* List of active surveys */}
+                            {surveys.filter(s => s.active).length > 0 ? (
+                              <div className="space-y-3">
+                                {surveys.filter(s => s.active).map(s => {
+                                  const isAnswered = localStorage.getItem(`answered_survey_${clientPortalSession.folio}_${s.id}`) === 'true';
+                                  const questionsCount = s.questions ? s.questions.length : 1;
+                                  
+                                  return (
+                                    <div 
+                                      key={s.id} 
+                                      className={`border rounded-3xl p-5 shadow-sm transition-all duration-200 bg-white ${
+                                        isAnswered 
+                                          ? 'border-slate-100 opacity-80' 
+                                          : 'border-[#2bbba9]/25 hover:border-[#2bbba9]/50'
+                                      }`}
+                                    >
+                                      <div className="space-y-3 bg-white">
+                                        <div className="flex justify-between items-start gap-2">
+                                          <div className="space-y-1">
+                                            <h4 className="text-sm font-bold text-slate-900 leading-snug">{s.title}</h4>
+                                            <p className="text-[10px] text-slate-400 font-medium">
+                                              Contiene {questionsCount} {questionsCount === 1 ? 'pregunta' : 'preguntas'}
+                                            </p>
+                                          </div>
+                                          {s.reward && s.reward !== 'Sin recompensa' && (
+                                            <span className="bg-[#2bbba9]/10 text-[#1b8c7c] border border-[#2bbba9]/20 font-sans text-[9px] font-black uppercase rounded-lg px-2 py-0.5 whitespace-nowrap shrink-0">
+                                              🎁 Premia: {s.reward}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                                          <div>
+                                            {isAnswered ? (
+                                              <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200/50 px-2.5 py-1 rounded-xl font-bold uppercase tracking-wider select-none">
+                                                ✓ Respondida
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center gap-1 text-[10px] bg-[#2bbba9]/10 text-[#1b8c7c] border border-[#2bbba9]/20 px-2.5 py-1 rounded-xl font-black uppercase tracking-wider select-none animate-pulse">
+                                                ● Pendiente
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {!isAnswered && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedClientSurveyId(s.id)}
+                                              className="px-4 py-2 bg-[#2bbba9] hover:bg-[#20a392] text-white text-xs font-bold font-sans rounded-xl transition shadow-sm active:scale-95 cursor-pointer"
+                                            >
+                                              Responder encuesta →
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-md font-sans text-center space-y-4">
+                                <div className="w-14 h-14 bg-teal-50 text-[#149b8f] rounded-full flex items-center justify-center mx-auto text-2xl">
+                                  🎉
+                                </div>
+                                <div className="space-y-1 bg-white">
+                                  <h3 className="text-base font-serif font-extrabold text-slate-900 leading-tight">¡Al día! No tienes encuestas pendientes</h3>
+                                  <p className="text-xs text-slate-500 leading-relaxed pt-1">
+                                    Muchas gracias por compartir tus comentarios con nosotros. Te notificaremos cuando tengamos nuevas dinámicas o encuestas de satisfacción.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
-              ))}
+              )}
             </AnimatePresence>
           </div>
 
@@ -1703,6 +2147,7 @@ export default function App() {
           </div>
 
         </div>
+        )
       ) : (
         /* ==================== MERCHANT ADMINISTRATOR CONSOLE ==================== */
         <>
@@ -2204,7 +2649,6 @@ export default function App() {
                 </div>
                 <Lock size={12} className="text-[#149b8f]" />
               </button>
-
 
             </div>
 
@@ -2947,7 +3391,11 @@ export default function App() {
                 </div>
 
                 {/* Sub Tab Panel rendered */}
-                <BirthdayTabPanel customers={consumers} />
+                <BirthdayTabPanel 
+                  customers={consumers} 
+                  clerks={CLERKS}
+                  onConfirmBirthdayCall={handleConfirmBirthdayCall}
+                />
               </div>
             )}
 
@@ -3006,6 +3454,11 @@ export default function App() {
                     notifications={notifications}
                     onSaveNotification={dbSaveNotification}
                     onDeleteNotification={dbDeleteNotification}
+                    onEnterPublicSurveyPortal={() => {
+                      setIsPublicSurveyPortal(true);
+                      setIsClientMode(true);
+                      window.location.hash = 'portal_encuestas';
+                    }}
                   />
                 )}
               </div>

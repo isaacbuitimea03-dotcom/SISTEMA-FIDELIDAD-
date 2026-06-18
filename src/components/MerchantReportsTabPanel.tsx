@@ -24,6 +24,7 @@ interface MerchantReportsTabPanelProps {
   notifications: AppNotification[];
   onSaveNotification: (notification: AppNotification) => Promise<void>;
   onDeleteNotification: (id: string) => Promise<void>;
+  onEnterPublicSurveyPortal?: () => void;
 }
 
 export default function MerchantReportsTabPanel({ 
@@ -41,11 +42,32 @@ export default function MerchantReportsTabPanel({
   setClerks,
   notifications,
   onSaveNotification,
-  onDeleteNotification
+  onDeleteNotification,
+  onEnterPublicSurveyPortal
 }: MerchantReportsTabPanelProps) {
   const [filterPeriod, setFilterPeriod] = useState<'todo' | 'semana' | 'mes' | 'anio'>('todo');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
+
+  // Deduplicate survey answers by id to enforce one response per unique user/participation
+  const uniqueSurveyAnswers = React.useMemo(() => {
+    const map = new Map<string, SurveyAnswer>();
+    (surveyAnswers || []).forEach(ans => {
+      if (ans && ans.id) {
+        map.set(ans.id, ans);
+      }
+    });
+    return Array.from(map.values());
+  }, [surveyAnswers]);
+
+  const getBaseUrl = () => {
+    const origin = window.location.origin;
+    if (origin.includes('run.app') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return 'https://sistema-fidelidad.vercel.app';
+    }
+    return origin;
+  };
 
   // Birthday Template States (moved from BirthdayTabPanel)
   const [bdayTemplate, setBdayTemplate] = useState<string>(() => {
@@ -88,6 +110,62 @@ export default function MerchantReportsTabPanel({
   const [notiError, setNotiError] = useState('');
   const [notiSuccess, setNotiSuccess] = useState(false);
   const [isSendingNoti, setIsSendingNoti] = useState(false);
+
+  // Gemini AI Conclusion States
+  interface AIConclusionData {
+    acceptanceScore: number;
+    satisfactionLevel: 'Excelente' | 'Favorable' | 'En Observación' | 'Atención Requerida';
+    keyStrengths: string[];
+    keyOpportunities: string[];
+    generalConclusion: string;
+    actionableInsights: string[];
+  }
+  const [aiConclusion, setAiConclusion] = useState<AIConclusionData | null>(null);
+  const [isLoadingAiConclusion, setIsLoadingAiConclusion] = useState(false);
+  const [aiError, setAiError] = useState('');
+
+  const fetchAiConclusion = async () => {
+    setIsLoadingAiConclusion(true);
+    setAiError('');
+    try {
+      const response = await fetch('/api/gemini/marketing-conclusion', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          surveys,
+          surveyAnswers: uniqueSurveyAnswers
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.generalConclusion) {
+          setAiConclusion(data);
+        } else {
+          setAiError('Respuesta de IA con estructura inesperada.');
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        setAiError(errData.error || 'No se pudo generar la conclusión de IA.');
+      }
+    } catch (e: any) {
+      console.error("Error communicating with Gemini endpoint:", e);
+      setAiError('Ocurrió un error al contactar el servidor de inteligencia artificial.');
+    } finally {
+      setIsLoadingAiConclusion(false);
+    }
+  };
+
+  // Automatically refresh AI analysis when active survey answers or surveys configuration count changes
+  React.useEffect(() => {
+    if (uniqueSurveyAnswers.length > 0 && surveys.length > 0) {
+      fetchAiConclusion();
+    } else {
+      // Clear AI cache if there is no data to analyze yet
+      setAiConclusion(null);
+    }
+  }, [uniqueSurveyAnswers.length, surveys.length]);
 
   const handleSendNotification = async () => {
     setNotiError('');
@@ -516,6 +594,9 @@ export default function MerchantReportsTabPanel({
   const [newSurveyOption, setNewSurveyOption] = useState('');
   const [newSurveyOptionsList, setNewSurveyOptionsList] = useState<string[]>([]);
 
+  // Editing state
+  const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null);
+
   // Trigger feedback
   const [showMockExportSuccess, setShowMockExportSuccess] = useState<string | null>(null);
   const [showSubmissionsModal, setShowSubmissionsModal] = useState<string | null>(null); // survey ID or null
@@ -566,11 +647,11 @@ export default function MerchantReportsTabPanel({
 
   // Dynamic Clerk activity metrics
   const getClerkMetrics = () => {
-    const counts: Record<string, { total: number; registers: number; visits: number }> = {};
+    const counts: Record<string, { total: number; registers: number; visits: number; birthdayCalls: number }> = {};
     
     // Initialize with all current clerks
     clerks.forEach(cl => {
-      counts[cl.code.toUpperCase()] = { total: 0, registers: 0, visits: 0 };
+      counts[cl.code.toUpperCase()] = { total: 0, registers: 0, visits: 0, birthdayCalls: 0 };
     });
 
     logs.forEach(l => {
@@ -586,10 +667,12 @@ export default function MerchantReportsTabPanel({
       if (matchedClerk) {
         const key = matchedClerk.code.toUpperCase();
         if (!counts[key]) {
-          counts[key] = { total: 0, registers: 0, visits: 0 };
+          counts[key] = { total: 0, registers: 0, visits: 0, birthdayCalls: 0 };
         }
         counts[key].total += 1;
-        if ((l.type as string) === 'customer_registered' || l.description?.includes('Registro')) {
+        if (l.type === 'birthday_call') {
+          counts[key].birthdayCalls += 1;
+        } else if ((l.type as string) === 'customer_registered' || l.description?.includes('Registro')) {
           counts[key].registers += 1;
         } else {
           counts[key].visits += 1;
@@ -643,6 +726,46 @@ export default function MerchantReportsTabPanel({
     setNewQuestionOption('');
   };
 
+  const handleCancelEditing = () => {
+    setEditingSurveyId(null);
+    setNewSurveyTitle('');
+    setNewSurveyQuestion('');
+    setNewSurveyOptionsList([]);
+    setNewSurveyOption('');
+    setCampaignQuestions([]);
+    setIsCampaignMode(false);
+    setNewSurveyReward('10% de descuento');
+    
+    // reset question builders
+    setNewQuestionText('');
+    setNewQuestionType('multiple');
+    setNewQuestionOptionsList([]);
+    setNewQuestionOption('');
+  };
+
+  const handleEditSurveyClick = (srv: Survey) => {
+    setEditingSurveyId(srv.id);
+    setNewSurveyTitle(srv.title);
+    setNewSurveyReward(srv.reward || 'Sin recompensa');
+    setIsCampaignMode(!!srv.isCampaign);
+    
+    if (srv.isCampaign) {
+      setCampaignQuestions(srv.questions || []);
+      setNewSurveyQuestion('');
+      setNewSurveyOptionsList([]);
+    } else {
+      setCampaignQuestions([]);
+      const foundQuestion = srv.questions && srv.questions.length > 0 
+        ? srv.questions[0].text 
+        : (srv.question || '');
+      const foundOptions = srv.questions && srv.questions.length > 0
+        ? (srv.questions[0].options || [])
+        : (srv.options || []);
+      setNewSurveyQuestion(foundQuestion);
+      setNewSurveyOptionsList(foundOptions);
+    }
+  };
+
   const handlePublishSurvey = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSurveyTitle.trim()) {
@@ -651,6 +774,8 @@ export default function MerchantReportsTabPanel({
     }
 
     let s: Survey;
+    const existingActive = editingSurveyId ? (surveys.find(x => x.id === editingSurveyId)?.active ?? true) : true;
+    const existingSubmissions = editingSurveyId ? (surveys.find(x => x.id === editingSurveyId)?.submissionsCount ?? 0) : 0;
 
     if (isCampaignMode) {
       if (campaignQuestions.length === 0) {
@@ -659,15 +784,15 @@ export default function MerchantReportsTabPanel({
       }
 
       s = {
-        id: 'sv_' + Date.now(),
+        id: editingSurveyId || 'sv_' + Date.now(),
         title: newSurveyTitle.trim(),
         isCampaign: true,
         questions: campaignQuestions,
         question: campaignQuestions[0].text, // fallback
         options: campaignQuestions[0].options || [], // fallback
         reward: newSurveyReward,
-        active: true,
-        submissionsCount: 0
+        active: existingActive,
+        submissionsCount: existingSubmissions
       };
     } else {
       if (!newSurveyQuestion.trim()) {
@@ -683,30 +808,29 @@ export default function MerchantReportsTabPanel({
       };
 
       s = {
-        id: 'sv_' + Date.now(),
+        id: editingSurveyId || 'sv_' + Date.now(),
         title: newSurveyTitle.trim(),
         isCampaign: false,
         questions: [singleQ],
         question: newSurveyQuestion.trim(),
         options: singleQ.options || [],
         reward: newSurveyReward,
-        active: true,
-        submissionsCount: 0
+        active: existingActive,
+        submissionsCount: existingSubmissions
       };
     }
 
-    setSurveys([s, ...surveys]);
+    if (editingSurveyId) {
+      setSurveys(surveys.map(item => item.id === editingSurveyId ? s : item));
+      setShowMockExportSuccess('¡Encuesta/Campaña modificada con éxito!');
+    } else {
+      setSurveys([s, ...surveys]);
+      setShowMockExportSuccess('¡Encuesta/Campaña creada y publicada con éxito!');
+    }
 
     // Clear everything
-    setNewSurveyTitle('');
-    setNewSurveyQuestion('');
-    setNewSurveyOptionsList([]);
-    setNewSurveyOption('');
-    setCampaignQuestions([]);
-    setIsCampaignMode(false);
-    setNewSurveyReward('10% de descuento');
+    handleCancelEditing();
 
-    setShowMockExportSuccess('¡Encuesta/Campaña creada y publicada con éxito!');
     setTimeout(() => setShowMockExportSuccess(null), 3000);
   };
 
@@ -777,21 +901,109 @@ export default function MerchantReportsTabPanel({
 
   // 4. Marketing Conclusion Generator based on actual responses
   const getMarketingConclusion = () => {
+    if (aiConclusion && aiConclusion.generalConclusion) {
+      return aiConclusion;
+    }
+
+    // High fidelity dynamic, real-time client fallback
     const totalSurveys = surveys.length;
-    const totalAnswers = surveyAnswers.length;
+    const totalAnswers = uniqueSurveyAnswers.length;
     
     let positiveChoices = 0;
     let totalMCOptionsCount = 0;
     
-    surveyAnswers.forEach(ans => {
+    const strengthsSet = new Set<string>();
+    const opportunitiesSet = new Set<string>();
+    const answerFrequencies: Record<string, Record<string, number>> = {};
+
+    uniqueSurveyAnswers.forEach(ans => {
+      if (!ans || !ans.answers) return;
       ans.answers.forEach(sub => {
+        const qText = sub.questionText;
+        const aText = sub.answerText;
+        if (!qText || !aText) return;
+
+        if (!answerFrequencies[qText]) {
+          answerFrequencies[qText] = {};
+        }
+        answerFrequencies[qText][aText] = (answerFrequencies[qText][aText] || 0) + 1;
+
         totalMCOptionsCount++;
-        const txt = sub.answerText;
-        if (txt === 'Excelente sabor' || txt === 'Inmediato (<5 min)' || txt === 'Estándar (5-10 min)' || txt.includes('Bueno') || txt.includes('Muy bueno')) {
+        const lowerAns = aText.toLowerCase();
+        if (
+          lowerAns.includes('excelente') || 
+          lowerAns.includes('bueno') || 
+          lowerAns.includes('rápido') || 
+          lowerAns.includes('inmediato') || 
+          lowerAns.includes('estándar') || 
+          lowerAns.includes('sí') ||
+          lowerAns.includes('si') ||
+          lowerAns.includes('satisfecho') ||
+          lowerAns.includes('leal') ||
+          lowerAns.includes('5') ||
+          lowerAns.includes('4')
+        ) {
           positiveChoices++;
         }
       });
     });
+
+    // Populate actual strengths/opportunities dynamically based on frequency percentages
+    Object.entries(answerFrequencies).forEach(([qText, freqMap]) => {
+      const answersList = Object.entries(freqMap);
+      const qTotal = answersList.reduce((sum, [_, count]) => sum + count, 0);
+      
+      answersList.forEach(([aText, count]) => {
+        const pct = (count / qTotal) * 100;
+        const lowerAns = aText.toLowerCase();
+        
+        if (pct >= 50) {
+          if (
+            lowerAns.includes('excelente') || 
+            lowerAns.includes('bueno') || 
+            lowerAns.includes('rápido') || 
+            lowerAns.includes('inmediato') || 
+            lowerAns.includes('sí') ||
+            lowerAns.includes('si')
+          ) {
+            strengthsSet.add(`Mayoría califica "${qText}" como ${aText} (${Math.round(pct)}% de respuestas).`);
+          } else if (
+            lowerAns.includes('malo') || 
+            lowerAns.includes('lento') || 
+            lowerAns.includes('no') || 
+            lowerAns.includes('insatisfecho') ||
+            lowerAns.includes('cuerpo') ||
+            lowerAns.includes('fuerte')
+          ) {
+            opportunitiesSet.add(`Área de mejora en "${qText}": Mayoría señala ${aText} (${Math.round(pct)}%).`);
+          }
+        } else if (pct >= 20) {
+          if (
+            lowerAns.includes('lento') || 
+            lowerAns.includes('cuerpo') || 
+            lowerAns.includes('malo') ||
+            lowerAns.includes('no')
+          ) {
+            opportunitiesSet.add(`Prestar atención en "${qText}": ${Math.round(pct)}% de clientes mencionan ${aText}.`);
+          }
+        }
+      });
+    });
+
+    // Elegant defaults if we need to supplement data
+    if (strengthsSet.size === 0) {
+      if (totalSurveys > 0) {
+        strengthsSet.add(`Configuración exitosa de ${totalSurveys} campaña(s) activa(s) en Bistro.`);
+      } else {
+        strengthsSet.add('Monitoreo activo de la lealtad y satisfacción del cliente.');
+      }
+    }
+    if (opportunitiesSet.size === 0) {
+      opportunitiesSet.add('Continuar recopilando respuestas de los clientes para identificar tendencias emergentes.');
+    }
+
+    const keyStrengths = Array.from(strengthsSet).slice(0, 3);
+    const keyOpportunities = Array.from(opportunitiesSet).slice(0, 3);
 
     const rawPct = totalMCOptionsCount > 0 ? (positiveChoices / totalMCOptionsCount) * 100 : 85;
     const acceptanceScore = Math.round(rawPct);
@@ -802,53 +1014,24 @@ export default function MerchantReportsTabPanel({
     else if (acceptanceScore >= 60) satisfactionLevel = 'En Observación';
     else satisfactionLevel = 'Atención Requerida';
 
-    const sv01Answers = surveyAnswers.filter(a => a.surveyId === 'sv01');
-    const sv02Answers = surveyAnswers.filter(a => a.surveyId === 'sv02');
-
-    const saborCounts = {
-      excelente: sv01Answers.filter(a => a.answers.some(q => q.answerText === 'Excelente sabor')).length || 11,
-      fuerte: sv01Answers.filter(a => a.answers.some(q => q.answerText === 'Muy fuerte')).length || 2,
-      cuerpo: sv01Answers.filter(a => a.answers.some(q => q.answerText === 'Le falta cuerpo')).length || 1,
-      noConsumo: sv01Answers.filter(a => a.answers.some(q => q.answerText === 'No consumo café')).length || 0
-    };
-
-    const esperaCounts = {
-      inmediato: sv02Answers.filter(a => a.answers.some(q => q.answerText === 'Inmediato (<5 min)')).length || 5,
-      estandar: sv02Answers.filter(a => a.answers.some(q => q.answerText === 'Estándar (5-10 min)')).length || 5,
-      lento: sv02Answers.filter(a => a.answers.some(q => q.answerText === 'Lento (>10 min)')).length || 1
-    };
-
-    const keyStrengths: string[] = [];
-    const keyOpportunities: string[] = [];
-    const actionableInsights: string[] = [];
     let generalConclusion = '';
-
-    const totalSaborAnswers = saborCounts.excelente + saborCounts.fuerte + saborCounts.cuerpo;
-    const pctExcelente = totalSaborAnswers > 0 ? (saborCounts.excelente / totalSaborAnswers) * 100 : 78;
-    
-    if (pctExcelente >= 70) {
-      keyStrengths.push('Excelente sabor del grano de especialidad (pilar primordial de atracción).');
-      generalConclusion += 'Cafecito goza de un extraordinario posicionamiento de producto. El sabor sobresaliente consolida un pilar óptimo para retener socios premium de consumo diario. ';
+    if (totalAnswers > 0) {
+      generalConclusion = `Con un volumen actual de ${totalAnswers} respuesta(s) registrada(s), "Mi Cafecito" alcanza un índice promedio de satisfacción de ${acceptanceScore}%, resultando en un estatus ${satisfactionLevel.toLowerCase()}. `;
+      if (keyStrengths.length > 0) {
+        generalConclusion += `Los principales valores percibidos incluyen: ${keyStrengths[0].replace(/\.$/, '')}. `;
+      }
+      if (keyOpportunities.length > 0) {
+        generalConclusion += `En contraparte, se sugiere priorizar ${keyOpportunities[0].replace(/\.$/, '')} para maximizar el retorno de socios frecuentes.`;
+      }
     } else {
-      keyOpportunities.push('Calibrar el perfil: Algunos clientes prefieren una dosis menos amarga en espresso.');
-      generalConclusion += 'Se identifica que el club prefiere un perfil de tueste más balanceado; introducir orígenes de tueste medio mitigaría la percepción amarga de la infusión. ';
+      generalConclusion = `Se configuraron ${totalSurveys} formatos de encuestas con recompensas como cupones y sellos extras en el sistema. Los indicadores dinámicos y la conclusión de mercadeo se autopoblarán en tiempo real tan pronto los primeros socios completen el cuestionario.`;
     }
 
-    const totalEsperaAnswers = esperaCounts.inmediato + esperaCounts.estandar + esperaCounts.lento;
-    const pctLento = totalEsperaAnswers > 0 ? (esperaCounts.lento / totalEsperaAnswers) * 100 : 10;
-    
-    if (pctLento >= 15) {
-      keyOpportunities.push('Esperas Prolongadas: Cuello operativo en molienda y entrega de comandas.');
-      actionableInsights.push('Optimizar el mise-en-place de insumos y agregar un auxiliar de barista en horas de máxima afluencia comercial.');
-      generalConclusion += 'Por otro lado, se observan demoras episódicas mayores a 10 minutos que impactan negativamente la experiencia de retiro veloz.';
-    } else {
-      keyStrengths.push('Agilidad en barista: Despachos predominantemente en rangos idóneos de 5 minutos.');
-      actionableInsights.push('Impulsar promociones combinadas de café espresso y bizcochos finos para expandir rentabilidad unitaria.');
-      generalConclusion += 'En términos operativos, el barista mantiene un estándar encomiable de entrega ágil de comandas en mostrador.';
-    }
-
-    actionableInsights.push('Elegir "Café de cortesía" como recompensa estelar promueve el retorno reiterado de los socios de menor consumo.');
-    actionableInsights.push('Ampliar el catálogo de encuestas de satisfacción para incluir surtido de repostería y sandwichería.');
+    const actionableInsights = [
+      'Utilizar los cupones configurados como incentivo principal para expandir la recopilación de datos.',
+      'Analizar las preferencias de sabor o atención recurrentes para afinar lanzamientos de productos de temporada.',
+      'Alinear la atención de baristas con las horas de mayor canje de recompensas reportadas en las estadísticas.',
+    ];
 
     return {
       acceptanceScore,
@@ -1160,7 +1343,7 @@ export default function MerchantReportsTabPanel({
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(51, 65, 85);
-        doc.text(`${surveyAnswers.length}`, 81, y + 6);
+        doc.text(`${uniqueSurveyAnswers.length}`, 81, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
@@ -1285,7 +1468,7 @@ export default function MerchantReportsTabPanel({
           doc.setTextColor(71, 85, 105);
           doc.text(`Recompensa Acreditada: ${survey.reward || 'Sin recompensa'}`, 14, y);
           
-          const answersForThisSurvey = surveyAnswers.filter(ans => ans.surveyId === survey.id);
+          const answersForThisSurvey = uniqueSurveyAnswers.filter(ans => ans.surveyId === survey.id);
           doc.text(`Participaciones: ${answersForThisSurvey.length} formularios`, 120, y);
 
           y += 10;
@@ -1446,62 +1629,159 @@ export default function MerchantReportsTabPanel({
         </div>
       </div>
 
-      {/* Portal de Fidelidad para Clientes (Gerente Shared Link) */}
-      <div className="bg-gradient-to-r from-teal-50/50 to-emerald-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
-        <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
-          <div className="flex items-start sm:items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
-              <Smartphone size={20} />
+      {/* Portales Compartidos para Clientes (Gerente Shared Links) */}
+      <div className="grid grid-cols-1 gap-4">
+        {/* Enlace 1: Portal de Fidelidad General */}
+        <div className="bg-gradient-to-r from-teal-50/50 to-emerald-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
+          <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
+                <Smartphone size={20} />
+              </div>
+              <div>
+                <h4 className="font-serif font-black text-slate-900 text-sm">Portal de Fidelidad para Clientes</h4>
+                <p className="text-[11px] text-slate-500 font-sans leading-normal">
+                  Permíteles registrarse, consultar sus sellos acumulados y personalizar su tarjeta virtual en producción.
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="font-serif font-black text-slate-900 text-sm">Portal de Fidelidad para Clientes</h4>
-              <p className="text-[11px] text-slate-500 font-sans leading-normal">
-                Enlace para los socios. Permíteles registrarse, consultar sus sellos, realizar encuestas y personalizar el diseño de sus tarjetas virtuales.
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
-            <button
-              onClick={() => {
-                const link = window.location.origin + '/#fidelidad';
-                navigator.clipboard.writeText(link);
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 2000);
-              }}
-              className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              {copiedLink ? (
-                <>
-                  <Check size={14} className="text-[#149b8f]" />
-                  <span>¡Copiado!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={14} className="text-slate-500" />
-                  <span>Copiar Enlace</span>
-                </>
-              )}
-            </button>
+            
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
+              <button
+                onClick={() => {
+                  const link = getBaseUrl() + '/#fidelidad';
+                  navigator.clipboard.writeText(link);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                }}
+                className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check size={14} className="text-[#149b8f]" />
+                    <span>¡Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} className="text-slate-500" />
+                    <span>Copiar Enlace</span>
+                  </>
+                )}
+              </button>
 
-            <a
-              href="/#fidelidad"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <ExternalLink size={14} />
-              <span>Ver Portal</span>
-            </a>
+              <a
+                href={`${getBaseUrl()}/#fidelidad`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <ExternalLink size={14} />
+                <span>Ver Portal (Vercel)</span>
+              </a>
+            </div>
           </div>
+
+          <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
+            <span className="truncate select-all">{getBaseUrl() + '/#fidelidad'}</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
+              TARJETA DIGITAL
+            </span>
+          </div>
+
+          {/* Development / Testing quick helper */}
+          {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+            <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
+              <p className="text-[10px] text-amber-800 font-sans leading-normal">
+                ⚠️ <strong>Nota de Pruebas:</strong> El botón anterior abre tu web pública de <strong>Vercel</strong>, la cual aún no tiene tus últimos cambios guardados hasta que los despliegues. Para probar tus sellos y tarjetas en esta versión de desarrollo, haz clic abajo:
+              </p>
+              <a
+                href={`${window.location.origin}/#fidelidad`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition shadow-sm"
+              >
+                <Smartphone size={12} className="stroke-[2.5]" />
+                <span>Probar Portal en Entorno de Pruebas (Local) →</span>
+              </a>
+            </div>
+          )}
         </div>
 
-        {/* Input box displaying URL */}
-        <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
-          <span className="truncate select-all">{window.location.origin + '/#fidelidad'}</span>
-          <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
-            URL ACTIVO
-          </span>
+        {/* Enlace 2: Portal de Encuestas de Consumidores */}
+        <div className="bg-gradient-to-r from-teal-50/50 to-indigo-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
+          <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
+                <MessageSquare size={20} className="text-[#149b8f]" />
+              </div>
+              <div>
+                <h4 className="font-serif font-black text-slate-900 text-sm flex items-center gap-2">
+                  Portal de Encuestas de Consumidores
+                  <span className="bg-[#149b8f]/10 text-[#149b8f] text-[9px] font-black uppercase px-2 py-0.5 rounded-full select-none">
+                    ENCUESTAS 💬
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-500 font-sans leading-normal">
+                  Accede al panel donde los socios y comensales responden campañas de satisfacción vigentes para calificar su experiencia de servicio.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
+              <button
+                onClick={() => {
+                  const link = getBaseUrl() + '/#portal_encuestas';
+                  navigator.clipboard.writeText(link);
+                  setCopiedSurveyLink(true);
+                  setTimeout(() => setCopiedSurveyLink(false), 2050);
+                }}
+                className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                {copiedSurveyLink ? (
+                  <>
+                    <Check size={14} className="text-[#149b8f]" />
+                    <span>¡Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} className="text-slate-500" />
+                    <span>Copiar Enlace</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onEnterPublicSurveyPortal) {
+                    onEnterPublicSurveyPortal();
+                  } else {
+                    window.location.hash = 'portal_encuestas';
+                  }
+                }}
+                className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <ExternalLink size={14} />
+                <span>Ir al Portal (Esta Pestaña)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
+            <span className="truncate select-all">{getBaseUrl() + '/#portal_encuestas'}</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
+              SATISFACCIÓN DEL CLIENTE
+            </span>
+          </div>
+
+          {/* Development / Testing quick helper */}
+          {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+            <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
+              <p className="text-[10px] text-amber-800 font-sans leading-normal">
+                ⚠️ <strong>Nota de Pruebas:</strong> Hazle clic en "Ir al Portal" para probar de forma directa tus cambios en esta pestaña en modo cliente.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1808,7 +2088,7 @@ export default function MerchantReportsTabPanel({
           <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
             {clerks.map(clerk => {
               const codeKey = clerk.code.toUpperCase();
-              const metrics = currentClerkCounts[codeKey] || { total: 0, registers: 0, visits: 0 };
+              const metrics = currentClerkCounts[codeKey] || { total: 0, registers: 0, visits: 0, birthdayCalls: 0 };
               
               // Fallback default mock activity so initial clerks still have their nice actions if logs are empty
               let totalValue = metrics.total;
@@ -1821,10 +2101,17 @@ export default function MerchantReportsTabPanel({
               return (
                 <div key={clerk.code} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-150/60 text-xs shadow-inner">
                   <div className="space-y-0.5">
-                    <span className="font-mono bg-cyan-50 text-cyan-800 font-black px-2 py-0.5 border border-cyan-150 rounded text-[9px]">
-                      {clerk.code}
-                    </span>
-                    <span className="ml-2 font-bold text-slate-700">{clerk.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono bg-cyan-50 text-cyan-800 font-black px-2 py-0.5 border border-cyan-150 rounded text-[9px]">
+                        {clerk.code}
+                      </span>
+                      <span className="font-bold text-slate-700">{clerk.name}</span>
+                    </div>
+                    {metrics.birthdayCalls > 0 && (
+                      <p className="text-[10px] text-amber-600 font-bold flex items-center gap-1 mt-0.5">
+                        🎂 {metrics.birthdayCalls} {metrics.birthdayCalls === 1 ? 'llamada cpl.' : 'llamadas cpls.'}
+                      </p>
+                    )}
                   </div>
                   <span className="font-mono font-black text-[#149b8f] text-sm">{totalValue} acciones</span>
                 </div>
@@ -2369,113 +2656,75 @@ export default function MerchantReportsTabPanel({
         </div>
       </div>
 
-      {/* Encuestas para Clientes Form Section (Screen 11) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
-        <h3 className="font-serif font-black text-base text-slate-900 border-b border-slate-150 pb-2 flex items-center gap-1.5 flex-wrap">
+      {/* DISEÑO DE ENCUESTAS Y CAMPAÑAS DE FIDELIDAD */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5 text-left">
+        <h3 className="font-serif font-black text-base text-slate-900 border-b border-slate-150 pb-2 flex items-center gap-1.5">
           <MessageSquare size={18} className="text-[#149b8f]" />
-          Encuestas y Campañas de Fidelidad
+          Diseño de Encuestas y Campañas de Fidelidad
         </h3>
 
-        {/* AI Marketing Conclusion Panel */}
-        {(() => {
-          const marketing = getMarketingConclusion();
-          return (
-            <div className="bg-gradient-to-br from-teal-50/40 via-slate-50/30 to-indigo-50/20 border border-indigo-150/45 rounded-3xl p-5 space-y-4 shadow-sm relative overflow-hidden text-xs">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl pointer-events-none" />
-              
-              <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-indigo-100/30 pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-1 px-2 bg-gradient-to-r from-[#149b8f] to-[#2bbba9] text-white rounded-lg text-center font-extrabold text-[9px] tracking-wider uppercase">
-                    AI INSIGHT
-                  </div>
-                  <h4 className="font-serif font-black text-slate-800 text-sm leading-none">
-                    Conclusiones de Mercadeo y Recomendación Estratégica la Estancia
-                  </h4>
-                </div>
-                <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-150 px-2 py-0.5 rounded-full text-[9px] font-bold text-indigo-700">
-                  <Sparkles size={10} />
-                  ÍNDICE DE ACEPTACIÓN: {marketing.acceptanceScore}%
-                </div>
-              </div>
+        {showMockExportSuccess && (
+          <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-100 text-center animate-pulse">
+            ✨ {showMockExportSuccess}
+          </div>
+        )}
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                
-                {/* Satisfaction Level Gauge Card */}
-                <div className="bg-white/80 border border-slate-200 rounded-2xl p-4 flex flex-col items-center justify-center text-center shadow-sm">
-                  <span className="text-[9px] uppercase font-bold text-slate-400">Estado de Socios</span>
-                  <span className="text-sm font-black text-emerald-600 mt-1">{marketing.satisfactionLevel}</span>
-                  <span className="text-[9px] text-slate-400 mt-1 italic">Basado en {surveyAnswers.length} formularios</span>
-                </div>
-
-                {/* General summary conclusion */}
-                <div className="md:col-span-3 text-xs leading-relaxed text-slate-600 font-sans flex flex-col justify-center bg-white/40 border border-slate-150/50 p-4 rounded-2xl shadow-inner">
-                  <p className="italic">
-                    "{marketing.generalConclusion}"
-                  </p>
-                </div>
-
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-1.5">
-                {/* Strengths */}
-                <div className="space-y-2">
-                  <span className="text-[10px] font-mono tracking-wider uppercase font-extrabold text-emerald-700 block">✔ Fortalezas Clave</span>
-                  <ul className="text-[11px] text-slate-600 leading-relaxed space-y-1 pl-1">
-                    {marketing.keyStrengths.map((str, sidx) => (
-                      <li key={sidx} className="flex items-start gap-1">
-                        <Check size={11} className="text-emerald-600 mt-0.5 shrink-0" />
-                        <span>{str}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Opportunities */}
-                <div className="space-y-2">
-                  <span className="text-[10px] font-mono tracking-wider uppercase font-extrabold text-amber-805 block">⚠ Oportunidades</span>
-                  <ul className="text-[11px] text-slate-600 leading-relaxed space-y-1 pl-1">
-                    {marketing.keyOpportunities.map((op, oidx) => (
-                      <li key={oidx} className="flex items-start gap-1">
-                        <span className="text-amber-700 shrink-0 select-none">•</span>
-                        <span>{op}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Action plans */}
-                <div className="space-y-2">
-                  <span className="text-[10px] font-mono tracking-wider uppercase font-extrabold text-indigo-805 block">🚀 Recomendaciones de Acción</span>
-                  <ul className="text-[11px] text-slate-600 leading-relaxed space-y-1 pl-1">
-                    {marketing.actionableInsights.map((ins, iidx) => (
-                      <li key={iidx} className="flex items-start gap-1">
-                        <span className="text-indigo-600 shrink-0 select-none">▪</span>
-                        <span>{ins}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-            </div>
-          );
-        })()}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           
-          {/* Survey/Campaign Creator Section */}
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-slate-550 font-sans font-black uppercase block text-[10px] tracking-wider">Formato de Encuesta</label>
-              <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200/50">
+          {/* COLUMN 1: CREATOR FORM */}
+          <form onSubmit={handlePublishSurvey} className="space-y-4 bg-slate-50/50 p-4 rounded-xl border border-slate-150">
+            <h4 className="text-xs font-serif font-bold text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-1.5 flex items-center justify-between gap-1">
+              <span>{editingSurveyId ? '✏️ Editar Campaña / Encuesta' : '📝 Crear Nueva Campaña / Encuesta'}</span>
+              {editingSurveyId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditing}
+                  className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-2 py-0.5 rounded border border-red-150/35 font-bold cursor-pointer normal-case"
+                >
+                  Cancelar Edición
+                </button>
+              )}
+            </h4>
+
+            {/* Title field */}
+            <div className="space-y-1 block text-xs">
+              <label className="text-slate-500 font-bold block">Título de la Campaña *</label>
+              <input
+                type="text"
+                required
+                placeholder="Ej. Encuesta de Cafetería y Bistro Junio"
+                value={newSurveyTitle}
+                onChange={(e) => setNewSurveyTitle(e.target.value)}
+                className="w-full bg-white border border-slate-200 hover:border-slate-300 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all font-medium text-slate-800"
+              />
+            </div>
+
+            {/* Reward field */}
+            <div className="space-y-1 text-xs">
+              <label className="text-slate-500 font-bold block">Premio / Incentivo de Respuesta</label>
+              <select
+                value={newSurveyReward}
+                onChange={(e) => setNewSurveyReward(e.target.value)}
+                className="w-full bg-white border border-slate-200 focus:border-[#149b8f] rounded-xl px-2.5 py-2.5 text-xs outline-none font-bold text-slate-700 cursor-pointer"
+              >
+                <option value="1 Sello de Fidelidad">🎁 1 Sello de Fidelidad Extra</option>
+                <option value="10% de descuento">🎁 Cupón: 10% de descuento</option>
+                <option value="15% de descuento">🎁 Cupón: 15% de descuento</option>
+                <option value="Café Americano de cortesía">🎁 Cupón: Café Americano Chico Gratis</option>
+                <option value="Postre gratis">🎁 Cupón: Galleta o muffin gratis</option>
+                <option value="Sin recompensa">❌ Ningún premio (Cortesía)</option>
+              </select>
+            </div>
+
+            {/* Campaign type option */}
+            <div className="space-y-1 text-xs">
+              <label className="text-slate-500 font-bold block mb-1">Estructura del Formato</label>
+              <div className="grid grid-cols-2 gap-2 bg-white border border-slate-200 p-1 rounded-xl">
                 <button
                   type="button"
                   onClick={() => setIsCampaignMode(false)}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    !isCampaignMode 
-                      ? 'bg-[#149b8f] text-white shadow' 
-                      : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/40'
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    !isCampaignMode ? 'bg-[#149b8f] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-55'
                   }`}
                 >
                   Pregunta Única
@@ -2483,155 +2732,179 @@ export default function MerchantReportsTabPanel({
                 <button
                   type="button"
                   onClick={() => setIsCampaignMode(true)}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    isCampaignMode 
-                      ? 'bg-[#149b8f] text-white shadow' 
-                      : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200/40'
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    isCampaignMode ? 'bg-[#149b8f] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-55'
                   }`}
                 >
-                  🚀 Campaña Multi-Pregunta
+                  Campaña Multi-Pregunta
                 </button>
               </div>
             </div>
 
-            {/* Campaign configuration details */}
-            <form onSubmit={handlePublishSurvey} className="space-y-4 text-xs font-sans">
-              <div className="space-y-1">
-                <label className="text-slate-500 font-bold uppercase tracking-wider block">Título de la Encuesta / Campaña</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={isCampaignMode ? "Ej. Campaña Satisfacción Junio" : "Ej. Opinión del Espresso"}
-                  value={newSurveyTitle}
-                  onChange={(e) => setNewSurveyTitle(e.target.value)}
-                  className="w-full bg-slate-50 hover:bg-slate-100/55 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all"
-                />
-              </div>
-
-              {!isCampaignMode ? (
-                /* SINGLE QUESTION ACCORDION */
-                <div className="space-y-3.5 bg-slate-50/50 p-4 rounded-2xl border border-slate-200/65">
-                  <span className="text-slate-400 font-mono font-bold uppercase text-[9px] tracking-widest block">DISEÑO DE PREGUNTA</span>
-                  
-                  <div className="space-y-1">
-                    <label className="text-slate-550 font-bold uppercase block tracking-wide">Pregunta para el Cliente</label>
-                    <textarea
-                      required={!isCampaignMode}
-                      rows={2}
-                      placeholder="¿Qué le parecen las bebidas de espresso de nuestra sucursal?"
-                      value={newSurveyQuestion}
-                      onChange={(e) => setNewSurveyQuestion(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-slate-550 font-bold uppercase block tracking-wide">Respuestas de Opción de Opción Múltiples</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Agregar opción (Ej. Bueno)..."
-                        value={newSurveyOption}
-                        onChange={(e) => setNewSurveyOption(e.target.value)}
-                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddOptionToNewSurvey}
-                        className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-250 font-bold transition-all text-xs flex items-center gap-0.5 whitespace-nowrap"
-                      >
-                        <Plus size={13} /> Agregar
-                      </button>
-                    </div>
-
-                    {newSurveyOptionsList.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 mt-2 bg-white p-2 text-[10px] rounded-xl border border-slate-150">
-                        {newSurveyOptionsList.map((opt, oIdx) => (
-                          <span key={oIdx} className="bg-slate-50 border rounded px-2 py-0.5 font-semibold text-slate-600">
-                            {opt}
-                          </span>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setNewSurveyOptionsList([])}
-                          className="text-red-500 hover:text-red-600 font-bold ml-auto text-[10px]"
-                        >
-                          Limpiar
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 block italic pt-1 text-slate-400">Opciones por defecto: Bueno, Regular, Malo</span>
-                    )}
-                  </div>
+            {/* Mode selection contents */}
+            {!isCampaignMode ? (
+              /* SINGLE QUESTION BUILDER */
+              <div className="space-y-3 bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold block">Pregunta Única *</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. ¿Qué opinas de la nueva variedad de granos chiapanecos?"
+                    value={newSurveyQuestion}
+                    onChange={(e) => setNewSurveyQuestion(e.target.value)}
+                    className="w-full bg-slate-50 focus:bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#149b8f] transition-all"
+                  />
                 </div>
-              ) : (
-                /* CAMPAIGN QUESTION COMPILER */
-                <div className="space-y-4 bg-teal-50/10 p-4 rounded-2xl border border-[#149b8f]/15">
-                  <div className="flex justify-between items-center bg-white border border-slate-150 rounded-xl p-2">
-                    <span className="text-[#149b8f] font-sans font-extrabold uppercase text-[9px] tracking-widest block">DISEÑADOR DE PREGUNTA</span>
-                    <span className="bg-[#149b8f]/10 text-[#149b8f] text-[9px] px-2 py-0.5 rounded-full font-mono font-bold">Listas: {campaignQuestions.length}</span>
-                  </div>
 
-                  {/* Question Text */}
-                  <div className="space-y-1">
-                    <label className="text-slate-550 font-bold uppercase block text-[10px]">Texto de la Pregunta</label>
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold block">Opciones de Respuesta (Doble clic / Enter para agregar)</label>
+                  <p className="text-[9.5px] text-slate-400 pb-1">Deje vacío si desea una respuesta de texto libre libre.</p>
+                  <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Ej. ¿Qué opinas de nuestra limpieza y sanitarios?"
+                      placeholder="Ej. Excelente"
+                      value={newSurveyOption}
+                      onChange={(e) => setNewSurveyOption(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddOptionToNewSurvey();
+                        }
+                      }}
+                      className="flex-1 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#149b8f] transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddOptionToNewSurvey}
+                      className="px-3 bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {newSurveyOptionsList.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {newSurveyOptionsList.map((opt, oIdx) => (
+                        <span key={oIdx} className="bg-orange-50 text-orange-700 border border-orange-100 text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1">
+                          {opt}
+                          <button
+                            type="button"
+                            onClick={() => setNewSurveyOptionsList(newSurveyOptionsList.filter((_, idx) => idx !== oIdx))}
+                            className="text-red-500 hover:text-red-700 font-bold ml-1 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* MULTI QUESTION CAMPAIGN BUILDER */
+              <div className="space-y-4 bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                
+                {/* Questions list added */}
+                <div className="space-y-1">
+                  <span className="text-slate-500 font-bold block">Preguntas Compiladas ({campaignQuestions.length})</span>
+                  {campaignQuestions.length === 0 ? (
+                    <div className="border border-dashed border-slate-200 rounded-xl p-3 text-center text-slate-400 italic text-[11px]">
+                      No has agregado preguntas a esta campaña de lealtad aún.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                      {campaignQuestions.map((q, qIdx) => (
+                        <div key={q.id} className="bg-slate-50 border border-slate-150 p-2 rounded-lg flex justify-between items-center gap-2">
+                          <span className="truncate flex-1 font-semibold pr-3 text-slate-750">
+                            <strong>{qIdx + 1}.</strong> {q.text} <span className="text-[9px] text-[#149b8f] uppercase font-bold">({q.type === 'multiple' ? 'Opción múltiple' : 'Libre'})</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCampaignQuestions(campaignQuestions.filter(curr => curr.id !== q.id))}
+                            className="text-red-500 hover:text-red-700 font-bold text-xs p-1 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sub builder */}
+                <div className="border-t border-slate-100 pt-3 space-y-2.5">
+                  <span className="text-[#149b8f] font-mono text-[9px] uppercase font-black block tracking-wider">Añadir Pregunta</span>
+                  
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      placeholder="Texto de la pregunta"
                       value={newQuestionText}
                       onChange={(e) => setNewQuestionText(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#149b8f] transition-all"
+                      className="w-full bg-slate-50 focus:bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#149b8f] transition-all"
                     />
                   </div>
 
-                  {/* Question Format Selector */}
-                  <div className="space-y-1">
-                    <label className="text-slate-550 font-bold uppercase block text-[10px]">Formato de Respuesta</label>
-                    <select
-                      value={newQuestionType}
-                      onChange={(e) => setNewQuestionType(e.target.value as any)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#149b8f]"
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewQuestionType('multiple')}
+                      className={`py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        newQuestionType === 'multiple' ? 'bg-[#149b8f]/10 border-[#149b8f] text-[#11847a]' : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
                     >
-                      <option value="multiple">🔘 Opción Múltiple (Botones cerrados)</option>
-                      <option value="open">📝 Respuesta Abierta (Hasta 100 palabras)</option>
-                    </select>
+                      Opción Múltiple
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewQuestionType('open')}
+                      className={`py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        newQuestionType === 'open' ? 'bg-[#149b8f]/10 border-[#149b8f] text-[#11847a]' : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      Texto Abierto Libre
+                    </button>
                   </div>
 
-                  {/* If Multiple Choice Options compiler */}
                   {newQuestionType === 'multiple' && (
-                    <div className="space-y-1.5 bg-white p-3 rounded-xl border border-slate-150">
-                      <label className="text-slate-400 font-bold uppercase block text-[9px]">Opciones de Respuesta</label>
+                    <div className="space-y-1 block">
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="Opción (Ej. Muy Limpio)..."
+                          placeholder="Opción de respuesta"
                           value={newQuestionOption}
                           onChange={(e) => setNewQuestionOption(e.target.value)}
-                          className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-[#149b8f]"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddOptionToQuestion();
+                            }
+                          }}
+                          className="flex-1 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-[#149b8f] transition-all"
                         />
                         <button
                           type="button"
                           onClick={handleAddOptionToQuestion}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold transition text-xs flex items-center gap-0.5 whitespace-nowrap"
+                          className="px-3 bg-slate-100 border border-slate-250 font-bold rounded-lg cursor-pointer"
                         >
-                          <Plus size={11} /> Agregar
+                          +
                         </button>
                       </div>
 
                       {newQuestionOptionsList.length > 0 && (
-                        <div className="flex flex-wrap gap-1 bg-slate-50 p-2 rounded border border-slate-150 text-[10px]">
+                        <div className="flex flex-wrap gap-1 pt-1.5">
                           {newQuestionOptionsList.map((opt, oIdx) => (
-                            <span key={oIdx} className="bg-white border rounded px-2 py-0.5 text-slate-600 font-medium whitespace-nowrap">
+                            <span key={oIdx} className="bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-lg flex items-center gap-1">
                               {opt}
+                              <button
+                                type="button"
+                                onClick={() => setNewQuestionOptionsList(newQuestionOptionsList.filter((_, idx) => idx !== oIdx))}
+                                className="text-red-500 hover:text-red-700 font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
                             </span>
                           ))}
-                          <button
-                            type="button"
-                            onClick={() => setNewQuestionOptionsList([])}
-                            className="text-red-500 hover:text-red-650 font-bold ml-auto"
-                          >
-                            Vaciar
-                          </button>
                         </div>
                       )}
                     </div>
@@ -2640,267 +2913,205 @@ export default function MerchantReportsTabPanel({
                   <button
                     type="button"
                     onClick={handleAddQuestionToCampaign}
-                    className="w-full py-2 bg-[#149b8f]/10 hover:bg-[#149b8f]/20 text-[#149b8f] border border-[#149b8f]/20 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-150 rounded-xl text-xs"
                   >
-                    <Plus size={14} /> Registrar Pregunta en la Campaña
+                    + Agregar esta Pregunta a la Lista
                   </button>
-
-                  {/* Active list compiled */}
-                  {campaignQuestions.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-slate-200">
-                      <span className="text-slate-500 font-bold uppercase text-[9px] block">PREGUNTAS COMPILADAS ({campaignQuestions.length}):</span>
-                      <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {campaignQuestions.map((q, idx) => (
-                          <div key={q.id} className="bg-white border rounded-xl p-2.5 flex justify-between items-center text-[10.5px]">
-                            <div className="space-y-1 pr-3">
-                              <span className="text-slate-705 font-bold text-xs">{idx + 1}. {q.text}</span>
-                              <div className="flex items-center gap-1.5 text-[9px] flex-wrap">
-                                <span className="text-blue-600 font-semibold px-1 rounded bg-blue-50 border border-blue-100 uppercase uppercase-sm">
-                                  {q.type === 'multiple' ? 'Múltiple' : 'Abierta'}
-                                </span>
-                                {q.type === 'multiple' && (
-                                  <span className="text-slate-400">Opciones: {q.options?.join(', ')}</span>
-                                )}
-                                {q.type === 'open' && (
-                                  <span className="text-amber-600 font-bold">Límite 100 palabras</span>
-                                )}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setCampaignQuestions(campaignQuestions.filter(cg => cg.id !== q.id))}
-                              className="text-red-500 hover:text-red-650 cursor-pointer p-1"
-                              title="Eliminar pregunta de campaña"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
-              )}
-
-              {/* Reward Section */}
-              <div className="space-y-1">
-                <label className="text-slate-500 font-bold uppercase tracking-wider block">Recompensa tras Responder (Cupón de Regalo)</label>
-                <select
-                  value={newSurveyReward}
-                  onChange={(e) => setNewSurveyReward(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs outline-none"
-                >
-                  <option value="10% de descuento">10% de descuento de cortesía</option>
-                  <option value="Café de cortesía">Café de especialidad gratis</option>
-                  <option value="Postre gratis">Postre casero gratis</option>
-                  <option value="Sin recompensa">Sin premio (solo estadísticas)</option>
-                </select>
               </div>
+            )}
 
-              {/* Publish button */}
-              <button
-                type="submit"
-                className="w-full py-3 bg-[#149b8f] hover:bg-[#11847a] text-white font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer"
-              >
-                🚀 Publicar {isCampaignMode ? 'Campaña Multi-Pregunta' : 'Encuesta Simple'}
-              </button>
-            </form>
-          </div>
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-[#149b8f] hover:bg-[#11847a] text-white font-black rounded-xl text-xs uppercase tracking-wide cursor-pointer transition-all active:scale-[0.985] text-center flex items-center justify-center gap-2 shadow-sm"
+            >
+              🚀 {editingSurveyId ? 'Guardar Cambios de la Encuesta' : 'Publicar Encuesta / Campaña al Aire'}
+            </button>
+          </form>
 
-          {/* Active Published Surveys/Campaigns List */}
+          {/* COLUMN 2: ACTIVE SURVEYS GRID */}
           <div className="space-y-4">
-            <h4 className="text-xs uppercase tracking-wider font-extrabold text-slate-400 block border-b border-slate-100 pb-1.5 flex justify-between items-center">
-              <span>Encuestas / Campañas Activas ({surveys.length})</span>
-              <span className="text-[9px] text-[#149b8f] font-extrabold font-mono border border-[#149b8f]/30 rounded px-1.5 py-0.5 bg-emerald-50">PORTAL EN VIVO</span>
+            <h4 className="text-xs font-serif font-bold text-slate-800 uppercase tracking-wider border-b border-slate-200 pb-1.5 flex items-center gap-1">
+              📢 Campañas Publicadas en Sistema ({surveys.length})
             </h4>
 
-            <div className="space-y-3.5 max-h-[340px] overflow-y-auto pr-1">
+            {/* AI Strat and Marketing Conclusion Dashboard Card */}
+            <div className="bg-gradient-to-br from-indigo-50 to-teal-50/70 border border-indigo-150/65 rounded-2xl p-4 space-y-3.5 shadow-sm text-left relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 text-indigo-600/10 pointer-events-none">
+                <Sparkles size={48} />
+              </div>
+              
+              <div className="flex justify-between items-start gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-indigo-700 font-extrabold text-[12px] uppercase tracking-wider">
+                    <Sparkles size={14} className="animate-pulse" />
+                    <span>Conclusión de Estrategia con IA Gemini</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight">Análisis semántico automatizado en tiempo real de satisfacción y retención.</p>
+                </div>
+                
+                <button
+                  type="button"
+                  disabled={isLoadingAiConclusion || surveys.length === 0}
+                  onClick={fetchAiConclusion}
+                  className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-750 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-[10px] rounded-lg tracking-wide uppercase shadow-sm cursor-pointer transition-all flex items-center gap-1 shrink-0"
+                >
+                  {isLoadingAiConclusion ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Analizando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={11} />
+                      <span>Sincronizar IA</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Display Result */}
+              {(() => {
+                const marketing = getMarketingConclusion();
+                return (
+                  <div className="space-y-3">
+                    {/* Metrics row */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white/80 backdrop-blur-xs border border-indigo-100 rounded-xl p-2.5 space-y-1">
+                        <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider block">Índice Satisfacción</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="font-mono font-black text-indigo-650 text-base">{marketing.acceptanceScore}%</span>
+                          <span className="text-[10px] text-slate-550 font-bold bg-indigo-100/50 px-1.5 py-0.5 rounded uppercase">
+                            {marketing.satisfactionLevel}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white/80 backdrop-blur-xs border border-teal-100 rounded-xl p-2.5 space-y-1">
+                        <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider block">Incentivos en Curso</span>
+                        <span className="font-bold text-teal-800 text-xs block truncate">
+                          {surveys.find(s => s.active)?.reward || 'Sin premios asignados'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/95 backdrop-blur-xs rounded-xl p-3 border border-indigo-100/40 text-[11px] text-slate-700 leading-relaxed space-y-2">
+                      <p className="italic font-serif">"{marketing.generalConclusion}"</p>
+                      
+                      {marketing.keyStrengths.length > 0 && (
+                        <div className="space-y-1 text-[10.5px] pt-1">
+                          <strong className="text-emerald-700 uppercase tracking-wide text-[9px] block">✔ Fortalezas Clave:</strong>
+                          <ul className="list-disc pl-4 space-y-0.5 font-medium text-slate-650">
+                            {marketing.keyStrengths.map((s, idx) => <li key={idx}>{s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {marketing.keyOpportunities.length > 0 && (
+                        <div className="space-y-1 text-[10.5px] pt-1">
+                          <strong className="text-amber-700 uppercase tracking-wide text-[9px] block">⚠ Oportunidades Críticas:</strong>
+                          <ul className="list-disc pl-4 space-y-0.5 font-medium text-slate-650">
+                            {marketing.keyOpportunities.map((o, idx) => <li key={idx}>{o}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
               {surveys.length === 0 ? (
-                <div className="text-center p-8 bg-slate-50 border border-slate-100 rounded-2xl italic text-slate-400">
-                  No hay encuestas ni campañas creadas todavía. Usa el diseñador para publicar una.
+                <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl py-12 text-center text-slate-400 italic text-xs">
+                  No se han registrado encuestas. Comienza construyendo una a la izquierda.
                 </div>
               ) : (
-                surveys.map((sv) => {
-                  // Backwards compatibility rendering
-                  const questionCount = sv.questions ? sv.questions.length : 1;
+                surveys.map((srv) => {
+                  const qCount = srv.questions ? srv.questions.length : 1;
                   return (
-                    <div key={sv.id} className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-start gap-3 relative text-xs hover:border-[#149b8f]/30 transition-all shadow-sm">
-                      <div className="flex-1 space-y-1.5">
-                        <div className="flex justify-between items-center flex-wrap gap-1.5">
-                          <span className="font-extrabold text-slate-800 text-sm flex items-center gap-1 flex-wrap">
-                            {sv.title}
-                            {sv.isCampaign ? (
-                              <span className="bg-[#149b8f]/10 text-[#149b8f] border border-[#149b8f]/20 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">
-                                Campaña ({questionCount} preg's)
-                              </span>
-                            ) : (
-                              <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase">
-                                Simple
-                              </span>
-                            )}
+                    <div key={srv.id} className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3 relative shadow-xs flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap pr-16 text-left">
+                          <h5 className="font-extrabold text-slate-900 text-[13px] leading-snug">{srv.title}</h5>
+                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            srv.active 
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-250/20' 
+                              : 'bg-slate-100 text-slate-500 border border-slate-250/20'
+                          }`}>
+                            {srv.active ? 'Activa' : 'Detenida'}
                           </span>
-                          <span className="bg-[#149b8f]/5 text-[#149b8f] border border-[#149b8f]/20 font-bold rounded px-2 py-0.5 font-mono text-[9px] uppercase">
-                            Premio: {sv.reward}
+                          <span className="text-[8px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded uppercase">
+                            {qCount} {qCount === 1 ? 'pregunta' : 'preguntas'}
                           </span>
-                        </div>
-                        
-                        <div className="text-slate-500 text-[11px] leading-relaxed italic space-y-1 border-l-2 border-[#149b8f]/20 pl-2">
-                          {sv.questions && sv.questions.length > 0 ? (
-                            sv.questions.map((q, qidx) => (
-                              <p key={q.id}>
-                                <strong>{qidx + 1}. {q.text}</strong> {' '}
-                                <span className="text-[9px] font-bold text-[#149b8f]/70 uppercase font-mono bg-[#149b8f]/5 px-1 rounded">
-                                  ({q.type === 'multiple' ? 'Múltiple' : 'Abierta (max 1pc)'})
-                                </span>
-                              </p>
-                            ))
-                          ) : (
-                            <p><strong>1.</strong> "{sv.question}"</p>
-                          )}
                         </div>
 
-                        {/* Interactive response breakdown nested charts on screen inside the survey card! */}
-                        {sv.submissionsCount > 0 && sv.questions && sv.questions.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-dashed border-slate-200/80 space-y-2">
-                            <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 px-2 py-0.5 rounded font-sans leading-none inline-block mb-1">
-                              Distribución de Respuestas
-                            </span>
-                            {sv.questions.map(q => {
-                              if (q.type !== 'multiple') return null;
-                              
-                              const qAnswers = surveyAnswers.filter(ans => ans.surveyId === sv.id);
-                              const counts: Record<string, number> = {};
-                              q.options?.forEach(o => { counts[o] = 0; });
-                              
-                              qAnswers.forEach(ans => {
-                                const matchingAns = ans.answers?.find(a => a.questionId === q.id);
-                                if (matchingAns) {
-                                  q.options?.forEach(o => {
-                                    if (o.trim().toLowerCase() === matchingAns.answerText.trim().toLowerCase() || matchingAns.answerText.includes(o)) {
-                                      counts[o]++;
-                                    }
-                                  });
-                                }
-                              });
-                              
-                              const totalQCount = qAnswers.length;
-                              const maxVal = Math.max(...Object.values(counts), 1);
-                              
-                              return (
-                                <div key={q.id} className="space-y-1 pl-1">
-                                  <p className="text-[10px] font-bold text-slate-650 leading-normal text-slate-600">Pregunta: {q.text}</p>
-                                  <div className="space-y-1 pl-1">
-                                    {q.options?.map(opt => {
-                                      const optCount = counts[opt] || 0;
-                                      const percentage = totalQCount > 0 ? Math.round((optCount / totalQCount) * 100) : 0;
-                                      return (
-                                        <div key={opt} className="space-y-0.5">
-                                          <div className="flex justify-between items-center text-[9px] text-slate-500">
-                                            <span>{opt}</span>
-                                            <span className="font-mono font-bold text-slate-600">{optCount} r ({percentage}%)</span>
-                                          </div>
-                                          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
-                                            <div 
-                                              className="h-full bg-[#149b8f]/80 rounded-full" 
-                                              style={{ width: `${percentage}%` }}
-                                            />
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                        {srv.reward && srv.reward !== 'Sin recompensa' && (
+                          <div className="text-[10px] text-[#149b8f] font-bold flex items-center gap-1 text-left">
+                            🎁 Premio: <strong className="bg-[#149b8f]/5 px-2 py-0.5 rounded-lg border border-[#149b8f]/10">{srv.reward}</strong>
                           </div>
                         )}
-                        
-                        {/* Stats Submissions */}
-                        <div className="flex items-center justify-between pt-1.5 flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-400">Total respondidas: <strong>{sv.submissionsCount}</strong></span>
-                            <span className={`w-1.5 h-1.5 rounded-full ${sv.active ? 'bg-[#149b8f] animate-ping' : 'bg-slate-350'}`} />
-                          </div>
-                          
-                          {/* Submissions Viewer Button */}
-                          {sv.submissionsCount > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setShowSubmissionsModal(sv.id)}
-                              className="bg-white hover:bg-slate-100 text-slate-800 hover:text-slate-950 border border-slate-200 font-bold px-2.5 py-1 rounded text-[9.5px] transition flex items-center gap-1 shadow-sm leading-none cursor-pointer"
-                            >
-                              <Eye size={11} /> Ver {sv.submissionsCount} Respuestas
-                            </button>
-                          )}
+                      </div>
+
+                      {/* Summary Metrics & Actions */}
+                      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl text-xs gap-3">
+                        <div className="text-left font-sans flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase font-black tracking-wider block">Respuestas:</span>
+                          <strong className="text-slate-800 text-[13px]">{srv.submissionsCount || 0}</strong>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Edit Survey btn */}
+                          <button
+                            type="button"
+                            onClick={() => handleEditSurveyClick(srv)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-150/40 text-[10px] font-bold rounded-lg uppercase cursor-pointer flex items-center gap-1"
+                            title="Editar Preguntas o Configuración de Encuesta"
+                          >
+                            <Edit size={11} />
+                            <span>Editar</span>
+                          </button>
+
+                          {/* Toggle Active btn */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSurvey(srv.id)}
+                            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                              srv.active 
+                                ? 'bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-150/40' 
+                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150/40'
+                            }`}
+                          >
+                            {srv.active ? 'Pausar' : 'Reactivar'}
+                          </button>
+
+                          {/* View Submissions answers */}
+                          <button
+                            type="button"
+                            onClick={() => setShowSubmissionsModal(srv.id)}
+                            className="px-2.5 py-1.5 bg-[#149b8f]/10 hover:bg-[#149b8f]/20 text-[#149b8f] border border-[#149b8f]/15 text-[10px] font-black rounded-lg uppercase cursor-pointer"
+                          >
+                            🔍 Respuestas
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 relative">
-                        <button
-                          onClick={() => handleToggleSurvey(sv.id)}
-                          className="p-1 text-slate-400 hover:text-slate-700 transition cursor-pointer"
-                          title={sv.active ? 'Pausar encuesta' : 'Activar encuesta'}
-                        >
-                          {sv.active ? <ToggleRight size={22} className="text-[#149b8f]" /> : <ToggleLeft size={22} />}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSurvey(sv.id)}
-                          className="p-1 text-slate-400 hover:text-red-500 transition cursor-pointer"
-                          title="Eliminar encuesta"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
+                      {/* Absolute delete button */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSurvey(srv.id)}
+                        className="absolute top-3.5 right-3.5 p-1 text-slate-400 hover:text-red-650 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                        title="Eliminar Encuesta Permanentemente"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   );
                 })
               )}
             </div>
-
-            {/* RESPUESTAS RECIBIDAS (SUBMISSIONS LIST SECTION IN REALTIME) */}
-            <div className="border-t border-slate-150 pt-3.5 space-y-3">
-              <span className="text-slate-550 uppercase tracking-wider text-[10px] font-extrabold flex items-center gap-1.5">
-                <ClipboardList size={13} className="text-[#149b8f]" />
-                Últimos Comentarios Abiertos e Histórico de Respuestas
-              </span>
-              
-              <div className="space-y-2 max-h-[170px] overflow-y-auto pr-1">
-                {surveyAnswers.length === 0 ? (
-                  <p className="text-[10.5px] italic text-slate-400 text-center py-4">No hay respuestas de clientes emitidas todavía en esta sesión.</p>
-                ) : (
-                  surveyAnswers.map(ans => (
-                    <div key={ans.id} className="bg-slate-50 border border-slate-150 rounded-xl p-3 space-y-1.5 text-[11px] shadow-sm">
-                      <div className="flex justify-between items-center text-[10px] text-slate-400">
-                        <span className="font-extrabold">Cliente: <strong className="text-slate-700">{ans.customerName}</strong> (#{ans.customerFolio})</span>
-                        <span className="font-mono text-[9px]">{new Date(ans.timestamp).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                      <div className="font-bold text-slate-800 border-b border-dashed border-slate-200 pb-1">
-                        Encuesta: <span className="text-[#149b8f]">{ans.surveyTitle}</span>
-                      </div>
-                      <div className="space-y-1.5 max-h-[100px] overflow-y-auto pr-1">
-                        {ans.answers.map(subQ => {
-                          const isLongText = subQ.answerText.length > 25;
-                          return (
-                            <div key={subQ.questionId} className="space-y-0.5 text-[10.5px]">
-                              <p className="text-slate-500 font-semibold italic">"{subQ.questionText}"</p>
-                              <p className={`p-2 rounded-xl border leading-relaxed ${
-                                isLongText 
-                                  ? 'bg-amber-50/40 text-slate-800 border-amber-100 font-medium italic block' 
-                                  : 'bg-white border-slate-200 font-sans font-bold text-slate-800'
-                              }`}>
-                                {subQ.answerText || <em className="text-slate-400 font-normal">Sin respuesta</em>}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
           </div>
+
         </div>
       </div>
 
@@ -2964,10 +3175,10 @@ export default function MerchantReportsTabPanel({
                         <span className="block text-[10px] text-slate-400 font-normal">{item.description?.split(' para ')?.[1] || ''}</span>
                       </td>
                       <td className="p-3.5 text-slate-600">
-                        {(item.type as string) === 'customer_registered' ? '🆕 Registro Nuevo' : '☕ Visita registrada'}
+                        {item.type === 'birthday_call' ? '📞 Llamada Cumpleaños' : (item.type as string) === 'customer_registered' ? '🆕 Registro Nuevo' : '☕ Visita registrada'}
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-[#149b8f]">
-                        {(item.type as string) === 'stamp_added' ? `+${item.amount} taza(s)` : 'Creado'}
+                        {item.type === 'birthday_call' ? 'Completado' : (item.type as string) === 'stamp_added' ? `+${item.amount} taza(s)` : 'Creado'}
                       </td>
                       <td className="p-3.5 text-center whitespace-nowrap">
                         <button
@@ -2991,7 +3202,7 @@ export default function MerchantReportsTabPanel({
       {showSubmissionsModal && (() => {
         const targetSurvey = surveys.find(s => s.id === showSubmissionsModal);
         if (!targetSurvey) return null;
-        const targetAnswers = surveyAnswers.filter(ans => ans.surveyId === showSubmissionsModal);
+        const targetAnswers = uniqueSurveyAnswers.filter(ans => ans.surveyId === showSubmissionsModal);
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">

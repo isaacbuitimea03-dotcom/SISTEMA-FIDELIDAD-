@@ -32,11 +32,12 @@ export interface RegisteredCustomer {
   points: number;
   unlockedVouchers: Voucher[];
   visitsHistory: VisitRecord[];
+  lastBirthdayCallYear?: number; // Year of the last confirmed birthday call
 }
 
 export interface ActivityLog {
   id: string;
-  type: 'stamp_added' | 'reward_unlocked' | 'voucher_redeemed';
+  type: 'stamp_added' | 'reward_unlocked' | 'voucher_redeemed' | 'birthday_call';
   amount: number;
   title: string;
   description: string;

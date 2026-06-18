@@ -142,7 +142,8 @@ export async function dbSaveConfig(cfg: MerchantConfig) {
 export async function dbSaveSurvey(survey: Survey) {
   const path = `surveys/${survey.id}`;
   try {
-    await setDoc(doc(db, 'surveys', survey.id), survey);
+    const cleanDoc = JSON.parse(JSON.stringify(survey));
+    await setDoc(doc(db, 'surveys', survey.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -152,7 +153,8 @@ export async function dbSaveSurvey(survey: Survey) {
 export async function dbSaveAnswer(answer: SurveyAnswer) {
   const path = `surveyAnswers/${answer.id}`;
   try {
-    await setDoc(doc(db, 'surveyAnswers', answer.id), answer);
+    const cleanDoc = JSON.parse(JSON.stringify(answer));
+    await setDoc(doc(db, 'surveyAnswers', answer.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

@@ -14,10 +14,21 @@ import {
 } from "firebase/firestore";
 import webPush from "web-push";
 import firebaseConfig from "./firebase-applet-config.json";
+import { GoogleGenAI } from "@google/genai";
 
 // Initialize Firebase with config
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+
+// Initialize GoogleGenAI SDK with recommended user-agent header
+const ai_genai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
 
 const app = express();
 const PORT = 3000;
@@ -140,6 +151,57 @@ app.post("/api/send-push", async (req, res) => {
   } catch (err: any) {
     console.error("[SERVER] Error sending web push notifications:", err);
     res.status(500).json({ error: err.message || "Push dispatch failed" });
+  }
+});
+
+// API: Generate Dynamic AI Marketing Conclusion using Gemini 3.5 Flash
+app.post("/api/gemini/marketing-conclusion", async (req, res) => {
+  const { surveys, surveyAnswers } = req.body;
+  if (!surveys || !surveyAnswers) {
+    return res.status(400).json({ error: "Missing surveys or surveyAnswers data" });
+  }
+
+  try {
+    const prompt = `Analiza los siguientes datos de encuestas y respuestas obtenidos en la cafetería/bistro "Mi Cafecito" y genera un resumen ejecutivo profesional y estratégico de mercadeo.
+    
+    ENCUESTAS CONFIGURADAS EN EL SISTEMA:
+    ${JSON.stringify(surveys, null, 2)}
+    
+    RESPUESTAS OBTENIDAS DE LOS CLIENTES:
+    ${JSON.stringify(surveyAnswers, null, 2)}
+    
+    Por favor responde en formato JSON con la siguiente estructura exacta:
+    {
+      "acceptanceScore": <número de 0 a 100 de satisfacción general calculada óptimamente>,
+      "satisfactionLevel": "Excelente" | "Favorable" | "En Observación" | "Atención Requerida",
+      "keyStrengths": [<lista de hasta 3 fortalezas clave encontradas en las respuestas o encuestas>],
+      "keyOpportunities": [<lista de hasta 3 áreas de oportunidad o puntos por mejorar encontrados>],
+      "generalConclusion": "<un párrafo descriptivo, analítico y redactado de manera formal que resuma el estado del servicio, producto y recomendación principal de fidelización>",
+      "actionableInsights": [<lista de hasta 4 acciones estratégicas recomendadas para aumentar la retención de clientes>]
+    }
+    
+    REGLA: Responde ÚNICAMENTE con el objeto JSON, asegúrate de que sea JSON válido sin texto adicional, explicaciones ni tags markdown como \`\`\`json.`;
+
+    const response = await ai_genai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+    });
+
+    const text = response.text || "{}";
+    let cleanText = text.trim();
+    if (cleanText.startsWith("```json")) {
+      cleanText = cleanText.substring(7);
+    }
+    if (cleanText.endsWith("```")) {
+      cleanText = cleanText.substring(0, cleanText.length - 3);
+    }
+    cleanText = cleanText.trim();
+    
+    const parsed = JSON.parse(cleanText);
+    res.json(parsed);
+  } catch (error: any) {
+    console.error("[GEMINI] Error generating conclusion:", error);
+    res.status(500).json({ error: error.message || "Failed to generate AI conclusion" });
   }
 });
 
