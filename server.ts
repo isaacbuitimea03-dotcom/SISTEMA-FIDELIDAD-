@@ -164,11 +164,16 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
   try {
     const prompt = `Analiza los siguientes datos de encuestas y respuestas obtenidos en la cafetería/bistro "Mi Cafecito" y genera un resumen ejecutivo profesional y estratégico de mercadeo.
     
-    ENCUESTAS CONFIGURADAS EN EL SISTEMA:
+    ENCUESTAS CONFIGURADAS Y ACTIVAS EN EL SISTEMA:
     ${JSON.stringify(surveys, null, 2)}
     
-    RESPUESTAS OBTENIDAS DE LOS CLIENTES:
+    RESPUESTAS OBTENIDAS DE LOS CLIENTES (SOLO DE ENCUESTAS ACTIVAS):
     ${JSON.stringify(surveyAnswers, null, 2)}
+    
+    REGLA CRÍTICA DE CONTEXTO:
+    - Debes basar tu análisis ÚNICAMENTE en las preguntas y respuestas reales provistas arriba.
+    - NO menciones el café, sabor de grano de café, espresso, baristas o moliendas a menos de que un elemento de las encuestas configuradas arriba contenga explícitamente preguntas sobre café.
+    - Si las encuestas tratan sobre otros temas (como servicio general, amabilidad, limpieza, promociones, desayunos o postres), tu conclusión, fortalezas ("keyStrengths") y oportunidades ("keyOpportunities") deben estar estrictamente limitadas a esos temas específicos. En ningún caso asumas plantillas genéricas sobre café.
     
     Por favor responde en formato JSON con la siguiente estructura exacta:
     {

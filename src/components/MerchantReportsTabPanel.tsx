@@ -111,6 +111,9 @@ export default function MerchantReportsTabPanel({
   const [notiSuccess, setNotiSuccess] = useState(false);
   const [isSendingNoti, setIsSendingNoti] = useState(false);
 
+  // Safely ask confirmation for survey deletion without standard blockable alert dialogs
+  const [surveyToDeleteId, setSurveyToDeleteId] = useState<string | null>(null);
+
   // Gemini AI Conclusion States
   interface AIConclusionData {
     acceptanceScore: number;
@@ -128,14 +131,18 @@ export default function MerchantReportsTabPanel({
     setIsLoadingAiConclusion(true);
     setAiError('');
     try {
+      const activeSurveys = surveys.filter(s => s.active);
+      const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
+      const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
+
       const response = await fetch('/api/gemini/marketing-conclusion', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          surveys,
-          surveyAnswers: uniqueSurveyAnswers
+          surveys: activeSurveys,
+          surveyAnswers: activeAnswers
         })
       });
       if (response.ok) {
@@ -157,15 +164,23 @@ export default function MerchantReportsTabPanel({
     }
   };
 
-  // Automatically refresh AI analysis when active survey answers or surveys configuration count changes
+  // Automatically refresh AI analysis when active survey answers or active surveys configuration count changes
   React.useEffect(() => {
-    if (uniqueSurveyAnswers.length > 0 && surveys.length > 0) {
+    const activeSurveys = surveys.filter(s => s.active);
+    const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
+    const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
+
+    if (activeAnswers.length > 0 && activeSurveys.length > 0) {
       fetchAiConclusion();
     } else {
       // Clear AI cache if there is no data to analyze yet
       setAiConclusion(null);
     }
-  }, [uniqueSurveyAnswers.length, surveys.length]);
+  }, [
+    surveys.filter(s => s.active).length,
+    surveys.length,
+    uniqueSurveyAnswers.length
+  ]);
 
   const handleSendNotification = async () => {
     setNotiError('');
@@ -839,9 +854,7 @@ export default function MerchantReportsTabPanel({
   };
 
   const handleDeleteSurvey = (id: string) => {
-    if (confirm('¿Deseas eliminar permanentemente esta encuesta/campaña del sistema?')) {
-      setSurveys(surveys.filter(s => s.id !== id));
-    }
+    setSurveys(surveys.filter(s => s.id !== id));
   };
 
   // 1. Visit Trends by day
@@ -906,8 +919,12 @@ export default function MerchantReportsTabPanel({
     }
 
     // High fidelity dynamic, real-time client fallback
-    const totalSurveys = surveys.length;
-    const totalAnswers = uniqueSurveyAnswers.length;
+    const activeSurveys = surveys.filter(s => s.active);
+    const activeSurveyIds = new Set(activeSurveys.map(s => s.id));
+    const activeAnswers = uniqueSurveyAnswers.filter(ans => activeSurveyIds.has(ans.surveyId));
+
+    const totalSurveys = activeSurveys.length;
+    const totalAnswers = activeAnswers.length;
     
     let positiveChoices = 0;
     let totalMCOptionsCount = 0;
@@ -916,7 +933,7 @@ export default function MerchantReportsTabPanel({
     const opportunitiesSet = new Set<string>();
     const answerFrequencies: Record<string, Record<string, number>> = {};
 
-    uniqueSurveyAnswers.forEach(ans => {
+    activeAnswers.forEach(ans => {
       if (!ans || !ans.answers) return;
       ans.answers.forEach(sub => {
         const qText = sub.questionText;
@@ -3096,15 +3113,38 @@ export default function MerchantReportsTabPanel({
                         </div>
                       </div>
 
-                      {/* Absolute delete button */}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSurvey(srv.id)}
-                        className="absolute top-3.5 right-3.5 p-1 text-slate-400 hover:text-red-650 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
-                        title="Eliminar Encuesta Permanentemente"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {/* Absolute delete button with inline sandbox-friendly confirm */}
+                      {surveyToDeleteId === srv.id ? (
+                        <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-red-50 border border-red-200 rounded-lg p-1 animate-fadeIn z-10 transition-all select-none">
+                          <span className="text-[9px] text-red-600 font-extrabold uppercase px-1 font-sans">¿Borrar?</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleDeleteSurvey(srv.id);
+                              setSurveyToDeleteId(null);
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-black uppercase px-2 py-1 rounded-md cursor-pointer shadow-xs shrink-0 font-sans"
+                          >
+                            Sí
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSurveyToDeleteId(null)}
+                            className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[9px] font-black uppercase px-1.5 py-1 rounded-md cursor-pointer shrink-0 font-sans"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setSurveyToDeleteId(srv.id)}
+                          className="absolute top-3.5 right-3.5 p-1 text-slate-400 hover:text-red-650 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                          title="Eliminar Encuesta Permanentemente"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   );
                 })

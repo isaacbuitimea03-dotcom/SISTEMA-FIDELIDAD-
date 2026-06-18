@@ -16,37 +16,10 @@ export default function BirthdayTabPanel({
   const [innerTab, setInnerTab] = useState<'proximos' | 'mes'>('proximos');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
-  // Simulated birthday customer for live tests
-  const [simulatedCustomer, setSimulatedCustomer] = useState<RegisteredCustomer | null>(null);
-
   // State for PIN verification
   const [pinInputs, setPinInputs] = useState<Record<string, string>>({});
   const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   const [loadingFolio, setLoadingFolio] = useState<string | null>(null);
-
-  const getTodayBirthdayString = () => {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `1995-${mm}-${dd}`;
-  };
-
-  const handleToggleSimulation = () => {
-    if (simulatedCustomer) {
-      setSimulatedCustomer(null);
-    } else {
-      setSimulatedCustomer({
-        folio: 'SIMULATION-Sofía Mendoza',
-        name: 'Sofía Mendoza (Prueba de Cumpleaños)',
-        phone: '+52 662 123 4567',
-        birthday: getTodayBirthdayString(),
-        currentStamps: 5,
-        points: 25,
-        unlockedVouchers: [],
-        visitsHistory: []
-      });
-    }
-  };
 
   const getSpanishMonthName = (monthIdx: number) => {
     const months = [
@@ -91,9 +64,7 @@ export default function BirthdayTabPanel({
 
   const currentYear = new Date().getFullYear();
 
-  const allCustomers = simulatedCustomer ? [simulatedCustomer, ...customers] : customers;
-
-  const analyzed = allCustomers
+  const analyzed = customers
     .map(c => ({ customer: c, bday: getBirthdayAnalysis(c) }))
     .filter(item => item.bday !== null) as Array<{ customer: RegisteredCustomer; bday: NonNullable<ReturnType<typeof getBirthdayAnalysis>> }>;
 
@@ -171,11 +142,6 @@ export default function BirthdayTabPanel({
     try {
       if (onConfirmBirthdayCall) {
         await onConfirmBirthdayCall(folio, matchedClerk.code, matchedClerk.name);
-      }
-
-      // If it's a simulated call, update its local year state so it is removed from the pending alerts
-      if (folio.startsWith('SIMULATION-')) {
-        setSimulatedCustomer(prev => prev ? { ...prev, lastBirthdayCallYear: currentYear } : null);
       }
 
       // Success: clear fields
@@ -316,42 +282,27 @@ export default function BirthdayTabPanel({
         </div>
       )}
 
-      {/* Switcher tabs & Simulation controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/50 p-2.5 rounded-2xl border border-slate-200/60">
-        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 w-full max-w-sm gap-1 shrink-0">
-          <button
-            onClick={() => setInnerTab('proximos')}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              innerTab === 'proximos'
-                ? 'bg-white text-[#149b8f] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            ⏰ Próximos (Pendientes)
-          </button>
-          <button
-            onClick={() => setInnerTab('mes')}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              innerTab === 'mes'
-                ? 'bg-white text-[#149b8f] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            📂 Calendario por Mes
-          </button>
-        </div>
-
+      {/* Switcher tabs */}
+      <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full max-w-sm gap-1 self-start">
         <button
-          onClick={handleToggleSimulation}
-          className={`px-4 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
-            simulatedCustomer 
-              ? 'bg-red-500 hover:bg-red-600 text-white border-red-500' 
-              : 'bg-white hover:bg-[#149b8f]/5 text-[#149b8f] border-[#149b8f]/30 hover:border-[#149b8f]/60'
+          onClick={() => setInnerTab('proximos')}
+          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            innerTab === 'proximos'
+               ? 'bg-white text-[#149b8f] shadow-sm'
+              : 'text-slate-500 hover:text-slate-800'
           }`}
-          title="Simula un cliente que cumple años hoy para verificar cómo se previene la duplicidad de llamadas"
         >
-          <span className={`w-2.5 h-2.5 rounded-full ${simulatedCustomer ? 'bg-white animate-ping' : 'bg-[#149b8f]'}`}></span>
-          {simulatedCustomer ? '❌ Quitar Simulación' : '🧪 Simular Cumpleañero Hoy'}
+          ⏰ Próximos (Pendientes)
+        </button>
+        <button
+          onClick={() => setInnerTab('mes')}
+          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            innerTab === 'mes'
+              ? 'bg-white text-[#149b8f] shadow-sm'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          📂 Calendario por Mes
         </button>
       </div>
 
