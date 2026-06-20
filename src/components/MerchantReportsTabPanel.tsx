@@ -52,15 +52,19 @@ export default function MerchantReportsTabPanel({
   const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
 
   // Deduplicate survey answers by id to enforce one response per unique user/participation
+  // Also filter out any answers belonging to surveys that have been deleted
   const uniqueSurveyAnswers = React.useMemo(() => {
+    const deletedSurveyIds = new Set(
+      surveys.filter(s => s.deleted).map(s => s.id)
+    );
     const map = new Map<string, SurveyAnswer>();
     (surveyAnswers || []).forEach(ans => {
-      if (ans && ans.id) {
+      if (ans && ans.id && !deletedSurveyIds.has(ans.surveyId)) {
         map.set(ans.id, ans);
       }
     });
     return Array.from(map.values());
-  }, [surveyAnswers]);
+  }, [surveyAnswers, surveys]);
 
   const getBaseUrl = () => {
     const origin = window.location.origin;
@@ -162,6 +166,15 @@ export default function MerchantReportsTabPanel({
   };
 
   // Gemini AI Conclusion States
+  interface AICriticalAlert {
+    answerId: string;
+    customerName: string;
+    customerFolio: string;
+    questionText: string;
+    answerText: string;
+    aiAnalysis: string;
+  }
+
   interface AIConclusionData {
     acceptanceScore: number;
     satisfactionLevel: 'Excelente' | 'Favorable' | 'En Observación' | 'Atención Requerida';
@@ -169,6 +182,7 @@ export default function MerchantReportsTabPanel({
     keyOpportunities: string[];
     generalConclusion: string;
     actionableInsights: string[];
+    criticalAlerts?: AICriticalAlert[];
   }
   const [aiConclusion, setAiConclusion] = useState<AIConclusionData | null>(null);
   const [isLoadingAiConclusion, setIsLoadingAiConclusion] = useState(false);
@@ -1109,13 +1123,59 @@ export default function MerchantReportsTabPanel({
       actionableInsights.push('Monitorear recurrentemente el panel de opinión para identificar variaciones estacionales en la percepción del servicio.');
     }
 
+    const criticalAlerts: AICriticalAlert[] = [];
+    const negativeKeywords = [
+      'malo', 'pésimo', 'grosero', 'sucio', 'insatisfecho', 'regular', 'mejorar', 
+      'tardado', 'lento', 'demasiado', 'apático', 'apatía', 'tardo', 'frio', 'frío',
+      'atención lenta', 'no me gustó', 'error', 'fallo', 'caro', 'decepcion', 'queja', 'limpieza'
+    ];
+    const negativeTexts = [
+      'requiere mejorar', 'apático o poco atento', 'mala atención', 'lento (> 10 minutos)', 'demasiado tardado', 'poca selección'
+    ];
+
+    activeAnswers.forEach(ans => {
+      if (!ans || !ans.answers) return;
+      ans.answers.forEach((sub) => {
+        const qText = sub.questionText;
+        const aText = sub.answerText;
+        if (!qText || !aText) return;
+
+        const lowerAns = aText.toLowerCase();
+        const isNegMC = negativeTexts.some(neg => lowerAns.includes(neg));
+        const isNegOpen = negativeKeywords.some(kw => lowerAns.includes(kw));
+
+        if (isNegMC || isNegOpen) {
+          let actionRec = 'Contactar al socio de inmediato para ofrecer una disculpa directa, validar su experiencia de servicio y compensarle en su siguiente visita.';
+          if (lowerAns.includes('tiempo') || lowerAns.includes('tardado') || lowerAns.includes('lento')) {
+            actionRec = 'Auditar tiempos de espera y carga laboral en barra durante la franja horaria de esta encuesta para agilizar los despachos.';
+          } else if (lowerAns.includes('atención') || lowerAns.includes('apático') || lowerAns.includes('grosero') || lowerAns.includes('atento')) {
+            actionRec = 'Realizar retroalimentación constructiva con el personal de barra sobre amabilidad, calidez y cortesía ante el consumidor.';
+          } else if (lowerAns.includes('sucio') || lowerAns.includes('limpieza')) {
+            actionRec = 'Sincronizar cronogramas de aseo constante en el bistro y áreas comunes para mantener un espacio impecable.';
+          } else if (lowerAns.includes('malo') || lowerAns.includes('sabor') || lowerAns.includes('temperatura') || lowerAns.includes('frio')) {
+            actionRec = 'Revisar los parámetros de extracción, temperatura de bebidas y la frescura de repostería para asegurar alta fidelidad culinaria.';
+          }
+
+          criticalAlerts.push({
+            answerId: ans.id,
+            customerName: ans.customerName,
+            customerFolio: ans.customerFolio,
+            questionText: qText,
+            answerText: aText,
+            aiAnalysis: `Heurística de Alerta: Comentario con nivel de satisfacción bajo. Sugerencia: ${actionRec}`
+          });
+        }
+      });
+    });
+
     return {
       acceptanceScore,
       satisfactionLevel,
       keyStrengths,
       keyOpportunities,
       generalConclusion,
-      actionableInsights
+      actionableInsights,
+      criticalAlerts
     };
   };
 
@@ -1397,6 +1457,7 @@ export default function MerchantReportsTabPanel({
         drawHeader('Análisis Estadístico e Indicadores de Satisfacción', 'SISTEMA DE AUDITORÍA DE OPINIÓN CLIENTE');
         
         const marketing = getMarketingConclusion();
+        const nonDeletedSurveys = surveys.filter(s => !s.deleted);
         
         addText('I. PANEL EJECUTIVO Y DIAGNÓSTICO ESTRATÉGICO DE MERCADEO', 12, 11, { fontStyle: 'bold' });
         y += 8;
@@ -1409,7 +1470,7 @@ export default function MerchantReportsTabPanel({
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(20, 155, 143);
-        doc.text(`${surveys.length}`, 14, y + 6);
+        doc.text(`${nonDeletedSurveys.length}`, 14, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
@@ -1527,6 +1588,60 @@ export default function MerchantReportsTabPanel({
           });
         });
 
+        // --- NEW SECTION: Alertas Críticas de Satisfacción Detectadas ---
+        if (marketing.criticalAlerts && marketing.criticalAlerts.length > 0) {
+          if (y > 220) { doc.addPage(); y = 15; }
+          y += 6;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8.5);
+          doc.setTextColor(225, 29, 72); // rose/red
+          doc.text(`⚠ ALERTAS DE SATISFACCIÓN BAJA IA (ATENCIÓN INMEDIATA DETECTADA: ${marketing.criticalAlerts.length}):`, 12, y);
+          y += 5;
+
+          marketing.criticalAlerts.forEach((alert) => {
+            if (y > 230) { doc.addPage(); y = 15; }
+            
+            // Draw a subtle background card for emphasis
+            doc.setFillColor(254, 242, 242); // very light red bg
+            doc.setDrawColor(254, 202, 202); // light red border
+            doc.rect(12, y, 186, 18, 'FD');
+            
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.5);
+            doc.setTextColor(153, 27, 27); // deep red
+            doc.text(`Socio: ${alert.customerName} (${alert.customerFolio})`, 15, y + 4.5);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(71, 85, 105);
+            doc.text(`Pregunta: ${alert.questionText}`, 15, y + 8.5);
+            
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(30, 41, 59);
+            const wrappedAns = doc.splitTextToSize(`" ${alert.answerText} "`, 180);
+            doc.text(wrappedAns[0] || '', 15, y + 12.5);
+            
+            y += 20;
+
+            if (y > 250) { doc.addPage(); y = 15; }
+            
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.5);
+            doc.setTextColor(79, 70, 229); // indigo
+            doc.text(`💡 Análisis y Plan de Mitigación IA:`, 14, y);
+            y += 4.5;
+            
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(51, 65, 85);
+            const wrappedResolution = doc.splitTextToSize(alert.aiAnalysis, 182);
+            wrappedResolution.forEach((line: string) => {
+              if (y > 275) { doc.addPage(); y = 15; }
+              doc.text(line, 14, y);
+              y += 4;
+            });
+            y += 4; // spacing between alerts
+          });
+        }
+
         // Break page to print separate Surveys responses details and their on-page answer distribution charts!
         doc.addPage();
         y = 15;
@@ -1534,7 +1649,7 @@ export default function MerchantReportsTabPanel({
         addText('II. DESGLOSE INDIVIDUAL DE CAMPAS Y DISTRIBUCIONES DE RESPUESTA', 12, 11, { fontStyle: 'bold' });
         y += 8;
 
-        surveys.forEach((survey, idx) => {
+        nonDeletedSurveys.forEach((survey, idx) => {
           if (y > 230) {
             doc.addPage();
             y = 15;
@@ -2719,186 +2834,12 @@ export default function MerchantReportsTabPanel({
                   );
                 })}
               </div>
-
               <div className="text-[10px] text-slate-400 leading-normal font-sans text-center mt-1">
                 💡 Para cambiar o renovar la contraseña de un operador, bórrala y vuelve a registrarla con la nueva clave de su preferencia.
               </div>
             </div>
           </div>
         )}
-      </div>
-
-      {/* 🔔 GESTOR DE ALERTAS DE CELULAR (PUSH NOTIFICATIONS) */}
-      <div id="gestor-alertas-celular-container" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
-        <div className="border-b border-slate-150 pb-3 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 border border-orange-100">
-              <Smartphone size={16} />
-            </div>
-            <div>
-              <h3 className="font-serif font-black text-sm text-slate-900 leading-tight">Configuración de Alertas Celulares (Avisos Push)</h3>
-              <p className="text-[11px] text-slate-500 font-sans">
-                Crea y envía notificaciones en tiempo real que aparecen en la barra de avisos de tus socios.
-              </p>
-            </div>
-          </div>
-          <span className="text-[10px] bg-orange-50 text-orange-700 font-extrabold px-2 py-0.5 rounded-full border border-orange-100 uppercase tracking-wider font-mono">
-            {notifications.length} enviadas
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Dispatcher Form */}
-          <div className="lg:col-span-5 bg-slate-50 rounded-2xl p-4 border border-slate-150 space-y-4 font-sans text-xs">
-            <h4 className="font-bold text-slate-800 text-[11.5px] uppercase tracking-wider">Nueva Notificación al Celular</h4>
-            
-            <div className="space-y-3 text-left">
-              {/* Title */}
-              <div className="space-y-1">
-                <label className="text-slate-500 font-bold block text-[10px] uppercase">Título de la Alerta</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: ¡2x1 en Capuccinos Hoy! ☕"
-                  value={notiTitle}
-                  onChange={(e) => setNotiTitle(e.target.value)}
-                  className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:bg-white rounded-xl px-3 py-2.5 text-xs outline-none focus:border-orange-500 transition-all font-medium text-slate-800"
-                />
-              </div>
-
-              {/* Body */}
-              <div className="space-y-1">
-                <label className="text-slate-500 font-bold block text-[10px] uppercase">Mensaje o Detalle</label>
-                <textarea
-                  required
-                  rows={2}
-                  placeholder="Ej: Te regalamos el segundo en la compra de cualquier tamaño café durante todo el día de hoy..."
-                  value={notiBody}
-                  onChange={(e) => setNotiBody(e.target.value)}
-                  className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:bg-white rounded-xl px-3 py-2 text-xs outline-none focus:border-orange-500 transition-all font-medium text-slate-800 leading-relaxed"
-                />
-              </div>
-
-              {/* Selection Target */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-500 font-bold block text-[10px] uppercase">Dirigido a</label>
-                  <select
-                    value={notiTarget}
-                    onChange={(e) => setNotiTarget(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2.5 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
-                  >
-                    <option value="all">📢 Todos los Socios</option>
-                    {customers.map((c) => (
-                      <option key={c.folio} value={c.folio}>
-                        👤 {c.name} ({c.folio})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1 font-sans">
-                  <label className="text-slate-500 font-bold block text-[10px] uppercase">Icono Visual</label>
-                  <select
-                    value={notiIcon}
-                    onChange={(e) => setNotiIcon(e.target.value as any)}
-                    className="w-full bg-white border border-slate-200 focus:border-orange-500 rounded-xl px-2.5 py-2.5 text-xs outline-none font-bold text-slate-705 cursor-pointer"
-                  >
-                    <option value="coffee">☕ Café / Bistro</option>
-                    <option value="promo">✨ Especial 2x1</option>
-                    <option value="cake">🍰 Pastel de Regalo</option>
-                    <option value="gift">🎁 Sorpresa Gratis</option>
-                    <option value="alert">🔔 Alerta de Cupón</option>
-                  </select>
-                </div>
-              </div>
-
-
-
-              {notiError && (
-                <p className="p-3 bg-red-50 text-red-650 rounded-xl text-[10.5px] font-bold border border-red-100 leading-normal">
-                  ⚠️ {notiError}
-                </p>
-              )}
-
-              {notiSuccess && (
-                <p className="p-3 bg-green-50 text-emerald-700 rounded-xl text-[10.5px] font-bold border border-green-150 leading-normal flex items-center gap-2 font-sans">
-                  <span className="p-1 bg-emerald-500/10 text-emerald-600 rounded-lg">✔</span> ¡Alerta de celular transmitida con éxito!
-                </p>
-              )}
-
-              <button
-                type="button"
-                onClick={handleSendNotification}
-                disabled={isSendingNoti}
-                className="w-full py-3 bg-orange-650 hover:bg-orange-700 disabled:bg-orange-300 text-white font-extrabold rounded-xl transition text-center cursor-pointer text-xs uppercase tracking-wider shadow-sm shadow-orange-700/10"
-              >
-                {isSendingNoti ? 'Estableciendo Enlace...' : 'Emitir Alerta Push 📲'}
-              </button>
-            </div>
-          </div>
-
-          {/* Past History Logs */}
-          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-150 p-4 space-y-3.5 text-xs flex flex-col min-h-[350px]">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
-                Registro de Alertas Emitidas
-              </h4>
-              <span className="text-[9px] text-slate-400 font-mono">Real-time live logs</span>
-            </div>
-
-            <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 flex-grow">
-              {notifications.length === 0 ? (
-                <div className="text-center py-16 text-slate-400 font-sans space-y-1">
-                  <p className="text-xs font-bold text-slate-550">Ninguna alerta celular emitida aún</p>
-                  <p className="text-[10px] text-slate-400">Las promociones lanzadas se guardarán en la nube de Firestore.</p>
-                </div>
-              ) : (
-                notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className="p-3 bg-slate-50 border border-slate-150 hover:border-slate-200 rounded-2xl flex items-start gap-3 relative hover:bg-slate-100/70 transition text-slate-700"
-                  >
-                    <div className="w-8.5 h-8.5 rounded-xl bg-orange-50 text-orange-600 border border-orange-100 flex items-center justify-center shrink-0 shadow-sm">
-                      {n.icon === 'coffee' && <Coffee size={15} />}
-                      {n.icon === 'promo' && <Sparkles size={15} />}
-                      {n.icon === 'cake' && <Cake size={15} />}
-                      {n.icon === 'gift' && <Gift size={15} />}
-                      {n.icon === 'alert' && <Smartphone size={15} />}
-                    </div>
-                    <div className="flex-grow space-y-1 text-left min-w-0 pr-6">
-                      <div className="flex items-center flex-wrap gap-1.5 min-w-0">
-                        <h5 className="font-black text-slate-900 truncate leading-tight text-[11.5px] max-w-[200px]">{n.title}</h5>
-                        <span className="text-[7.5px] bg-amber-50 text-amber-700 border border-amber-100 font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest shrink-0 scale-90">
-                          {n.targetCustomerFolio === 'all' ? 'Público general' : `Socio ${n.targetCustomerFolio}`}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-550 leading-relaxed font-sans">{n.body}</p>
-                      
-                      <div className="flex items-center gap-2 text-[9px] text-slate-400 font-mono font-medium pt-1">
-                        <span>Cajero: <strong className="text-slate-600">{n.clerkName}</strong></span>
-                        <span>•</span>
-                        <span>{new Date(n.timestamp).toLocaleString('es-MX', { hour12: true, dateStyle: 'short', timeStyle: 'short' })}</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm('¿Estás seguro de que deseas retirar esta alerta push de inmediato? Se borrará de la nube y de las pantallas de los socios.')) {
-                          onDeleteNotification(n.id);
-                        }
-                      }}
-                      title="Retirar notificación de inmediato"
-                      className="absolute top-3.5 right-3 p-1.5 text-slate-400 hover:text-red-650 hover:bg-slate-200 rounded-lg transition-all cursor-pointer shrink-0"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* DISEÑO DE ENCUESTAS Y CAMPAÑAS DE FIDELIDAD */}
@@ -3261,6 +3202,34 @@ export default function MerchantReportsTabPanel({
                         </div>
                       )}
                     </div>
+
+                    {marketing.criticalAlerts && marketing.criticalAlerts.length > 0 && (
+                      <div className="bg-rose-50/80 border border-rose-200/60 rounded-xl p-3 space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-rose-800 font-extrabold text-[10.5px] uppercase tracking-wider">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse inline-block" />
+                          <span>⚠️ Alertas de Comentarios Críticos ({marketing.criticalAlerts.length})</span>
+                        </div>
+                        <p className="text-[10px] text-slate-600 leading-normal">La IA de Gemini detectó socio(s) insatisfecho(s). Toma importancia y actúa hoy:</p>
+                        <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+                          {marketing.criticalAlerts.map((alert, aIdx) => (
+                            <div key={aIdx} className="bg-white border border-rose-100 rounded-lg p-2.5 space-y-1.5 text-left text-[10.5px] shadow-2xs">
+                              <div className="flex justify-between items-center text-[9px] text-slate-500 border-b border-rose-100/30 pb-1">
+                                <span>👤 <strong className="text-slate-800">{alert.customerName}</strong> ({alert.customerFolio})</span>
+                                <span className="bg-rose-100 text-rose-850 font-mono text-[8px] font-extrabold px-1.5 py-0.5 rounded">SENTIMIENTO BAJO</span>
+                              </div>
+                              <div className="bg-rose-50/20 p-2 rounded border border-slate-100 text-slate-700 italic">
+                                <strong className="text-slate-500 font-sans block text-[8.5px] uppercase font-bold not-italic">Pregunta: {alert.questionText}</strong>
+                                "{alert.answerText}"
+                              </div>
+                              <div className="text-indigo-950 bg-indigo-50 border border-indigo-100/70 p-2 rounded text-[10.5px] font-medium leading-relaxed">
+                                <span className="text-indigo-800 font-extrabold text-[8.5px] uppercase block tracking-wider mb-0.5">💡 Análisis de Mitigación IA:</span>
+                                {alert.aiAnalysis}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -3518,16 +3487,42 @@ export default function MerchantReportsTabPanel({
 
                       <div className="space-y-2 border-t border-slate-200/65 pt-2 pr-1">
                         {ans.answers.map((item) => {
+                          const lowerAns = (item.answerText || '').toLowerCase();
+                          const negativeKeywords = [
+                            'malo', 'pésimo', 'grosero', 'sucio', 'insatisfecho', 'regular', 'mejorar', 
+                            'tardado', 'lento', 'demasiado', 'apático', 'apatía', 'tardo', 'frio', 'frío',
+                            'atención lenta', 'no me gustó', 'error', 'fallo', 'caro', 'decepcion', 'queja', 'limpieza'
+                          ];
+                          const negativeTexts = [
+                            'requiere mejorar', 'apático o poco atento', 'mala atención', 'lento (> 10 minutos)', 'demasiado tardado', 'poca selección'
+                          ];
+                          const isNegative = negativeKeywords.some(kw => lowerAns.includes(kw)) || negativeTexts.some(neg => lowerAns.includes(neg));
                           const isTextAnswer = item.answerText.length > 25;
+
                           return (
                             <div key={item.questionId} className="space-y-1">
-                              <span className="text-slate-550 font-bold block text-[10.5px]">Pregunta: {item.questionText}</span>
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-550 font-bold block text-[10.5px]">Pregunta: {item.questionText}</span>
+                                {isNegative && (
+                                  <span className="bg-red-100 text-red-800 font-mono text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wider uppercase animate-pulse flex items-center gap-0.5">
+                                    ⚠️ ALERTA IA: CRÍTICO
+                                  </span>
+                                )}
+                              </div>
                               <div className={`p-2.5 rounded-xl border leading-relaxed text-[11px] ${
-                                isTextAnswer 
-                                  ? 'bg-amber-50/40 text-slate-800 border-amber-100 italic block font-medium shadow-inner' 
-                                  : 'bg-white border-slate-200 text-slate-850 font-bold font-sans'
+                                isNegative
+                                  ? 'bg-rose-50/60 text-slate-900 border-red-200 block shadow-inner'
+                                  : isTextAnswer 
+                                    ? 'bg-amber-50/40 text-slate-800 border-amber-100 italic block font-medium shadow-inner' 
+                                    : 'bg-white border-slate-200 text-slate-850 font-bold font-sans'
                               }`}>
-                                {item.answerText || <em className="text-slate-400 font-normal font-sans">Sin comentarios</em>}
+                                {item.answerText ? (
+                                  <span className={isNegative ? 'font-bold text-red-950 font-sans' : ''}>
+                                    {item.answerText}
+                                  </span>
+                                ) : (
+                                  <em className="text-slate-400 font-normal font-sans">Sin comentarios</em>
+                                )}
                               </div>
                             </div>
                           );

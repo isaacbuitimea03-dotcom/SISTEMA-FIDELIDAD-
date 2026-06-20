@@ -649,32 +649,67 @@ export default function App() {
         nextRawVal = updater;
       }
 
-      // Convert any omitted surveys from nextRawVal into soft-deleted surveys
-      const nextVal: Survey[] = [...nextRawVal];
-      const nextKeys = new Set(nextVal.map(s => s.id));
+      // Separate surveys: those to keep (not deleted) and those to delete absolutely
+      const toKeep: Survey[] = [];
+      const toDelete: Survey[] = [];
 
-      for (const s of prevSurveys) {
-        if (!nextKeys.has(s.id)) {
-          nextVal.push({
-            ...s,
-            deleted: true,
-            active: false
-          });
+      // Treat any surveys in nextRawVal that are marked deleted, plus any missing from nextRawVal as toDelete
+      const nextKeys = new Set(nextRawVal.map(s => s.id));
+
+      for (const s of nextRawVal) {
+        if (s.deleted) {
+          toDelete.push(s);
+        } else {
+          toKeep.push(s);
         }
       }
 
-      // Perform async Firestore operations in the background to avoid blocking and state mismatch
+      for (const s of prevSurveys) {
+        if (!nextKeys.has(s.id)) {
+          // Prevent duplicates
+          if (!toDelete.some(del => del.id === s.id)) {
+            toDelete.push(s);
+          }
+        }
+      }
+
+      // Remove belonging survey answers from local state immediately
+      if (toDelete.length > 0) {
+        setSurveyAnswers((prevAnswers) => {
+          return prevAnswers.filter(ans => !toDelete.some(del => del.id === ans.surveyId));
+        });
+      }
+
+      // Perform async Firestore operations in the background
       setTimeout(async () => {
-        for (const s of nextVal) {
+        // Save/update the kept surveys
+        for (const s of toKeep) {
           try {
             await dbSaveSurvey(s);
           } catch (e) {
-            console.error(e);
+            console.error('Error saving survey in Firestore:', e);
+          }
+        }
+
+        // Hard delete the surveys and their answers from Firestore
+        for (const s of toDelete) {
+          try {
+            console.log(`Hard-deleting survey ${s.id} from Firestore`);
+            await deleteDoc(doc(db, 'surveys', s.id));
+
+            // Find and delete all answers for this survey
+            const answersToDelete = surveyAnswers.filter(ans => ans.surveyId === s.id);
+            for (const ans of answersToDelete) {
+              console.log(`Hard-deleting answer ${ans.id} from Firestore`);
+              await deleteDoc(doc(db, 'surveyAnswers', ans.id));
+            }
+          } catch (e) {
+            console.error('Error hard-deleting survey or answers in Firestore:', e);
           }
         }
       }, 0);
 
-      return nextVal;
+      return toKeep;
     });
   };
 
@@ -2045,10 +2080,7 @@ export default function App() {
                           }}
                         />
 
-                        <CustomerNotificationCenter 
-                          session={clientPortalSession} 
-                          notifications={notifications} 
-                        />
+
 
                         <p className="text-center text-[11px] text-slate-400 font-sans px-4 leading-normal">
                           Toca en el plástico virtual para girarlo y mostrar tu código QR al encargado del Bistro de Mi Cafecito. ¡Muchas gracias por tu visita!
@@ -2865,10 +2897,7 @@ export default function App() {
                   }}
                 />
 
-                <CustomerNotificationCenter 
-                  session={clientPortalSession} 
-                  notifications={notifications} 
-                />
+
 
                 <p className="text-center text-xs text-slate-400">
                   Haz clic en el plástico virtual para girarlo y mostrar tu QR holográfico en la barra del Bistró. ¡Gracias por tu visita!

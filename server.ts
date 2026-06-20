@@ -283,13 +283,59 @@ function getFallbackConclusion(surveys: any[], surveyAnswers: any[]) {
     "Proyectar capacitaciones al personal basadas en las fortalezas percibidas por la clientela."
   ];
 
+  const criticalAlerts: any[] = [];
+  const negativeKeywords = [
+    "malo", "pésimo", "grosero", "sucio", "insatisfecho", "regular", "mejorar", 
+    "tardado", "lento", "demasiado", "apático", "apatía", "tardo", "frio", "frío",
+    "atención lenta", "no me gustó", "error", "fallo", "caro", "decepcion", "queja", "limpieza"
+  ];
+  const negativeTexts = [
+    "requiere mejorar", "apático o poco atento", "mala atención", "lento (> 10 minutos)", "demasiado tardado", "poca selección"
+  ];
+
+  activeAnswers.forEach(ans => {
+    if (!ans || !ans.answers || !Array.isArray(ans.answers)) return;
+    ans.answers.forEach((sub: any) => {
+      const qText = sub.questionText;
+      const aText = sub.answerText;
+      if (!qText || !aText) return;
+
+      const lowerAns = aText.toLowerCase();
+      const isNegMC = negativeTexts.some(neg => lowerAns.includes(neg));
+      const isNegOpen = negativeKeywords.some(kw => lowerAns.includes(kw));
+
+      if (isNegMC || isNegOpen) {
+        let actionRec = "Contactar al socio de inmediato para ofrecer una disculpa directa, validar su experiencia de servicio y compensarle en su siguiente visita.";
+        if (lowerAns.includes("tiempo") || lowerAns.includes("tardado") || lowerAns.includes("lento")) {
+          actionRec = "Auditar tiempos de espera y carga laboral en barra durante la franja horaria de esta encuesta para agilizar los despachos.";
+        } else if (lowerAns.includes("atención") || lowerAns.includes("apático") || lowerAns.includes("grosero") || lowerAns.includes("atento")) {
+          actionRec = "Realizar retroalimentación constructiva con el personal de barra sobre amabilidad, calidez y cortesía ante el consumidor.";
+        } else if (lowerAns.includes("sucio") || lowerAns.includes("limpieza")) {
+          actionRec = "Sincronizar cronogramas de aseo constante en el bistro y áreas comunes para mantener un espacio impecable.";
+        } else if (lowerAns.includes("malo") || lowerAns.includes("sabor") || lowerAns.includes("temperatura") || lowerAns.includes("frio")) {
+          actionRec = "Revisar los parámetros de extracción, temperatura de bebidas y la frescura de repostería para asegurar alta fidelidad culinaria.";
+        }
+
+        criticalAlerts.push({
+          answerId: ans.id,
+          customerName: ans.customerName,
+          customerFolio: ans.customerFolio,
+          questionText: qText,
+          answerText: aText,
+          aiAnalysis: `Alerta Automática: Comentario con nivel de satisfacción bajo. Sugerencia: ${actionRec}`
+        });
+      }
+    });
+  });
+
   return {
     acceptanceScore,
     satisfactionLevel,
     keyStrengths,
     keyOpportunities,
     generalConclusion,
-    actionableInsights
+    actionableInsights,
+    criticalAlerts
   };
 }
 
@@ -314,6 +360,11 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
     - NO menciones el café, sabor de grano de café, espresso, baristas o moliendas a menos de que un elemento de las encuestas configuradas arriba contenga explícitamente preguntas sobre café.
     - Si las encuestas tratan sobre otros temas (como servicio general, amabilidad, limpieza, promociones, desayunos o postres), tu conclusión, fortalezas ("keyStrengths") y oportunidades ("keyOpportunities") deben estar estrictamente limitadas a esos temas específicos. En ningún caso asumas plantillas genéricas sobre café.
     
+    REGLA DE IDENTIFICACIÓN DE COMENTARIOS NEGATIVOS (CRITICAL ALERTS):
+    - Revisa detenidamente el listado de respuestas ("surveyAnswers") y busca cualquier respuesta que denote insatisfacción, quejas, molestia, mala atención, tiempos lentos de entrega, problemas de calidad de los postres o bebidas, suciedad, o comentarios negativos abiertos (por ejemplo: respuestas de opción múltiple que digan "Requiere mejorar", "Poca selección", "Apático o poco atento", "Mala atención", "Lento (> 10 minutos)", "Demasiado tardado", o respuestas de texto libre con términos críticos como "malo", "grosero", "sucio", "pésimo", "caro", "decepción", "frió", "tarde", "limpieza").
+    - Para cada comentario de insatisfacción o queja real detectado en las respuestas, debes agregar una entrada detallada en la sección "criticalAlerts", incluyendo un análisis de mitigación muy empático e instructivo para que el administrador pueda actuar.
+    - Si no encuentras ningún comentario negativo o de insatisfacción en el set de datos provisto, "criticalAlerts" debe ser una lista vacía: [].
+
     Por favor responde en formato JSON con la siguiente estructura exacta:
     {
       "acceptanceScore": <número de 0 a 100 de satisfacción general calculada óptimamente>,
@@ -321,7 +372,17 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
       "keyStrengths": [<lista de hasta 3 fortalezas clave encontradas en las respuestas o encuestas>],
       "keyOpportunities": [<lista de hasta 3 áreas de oportunidad o puntos por mejorar encontrados>],
       "generalConclusion": "<un párrafo descriptivo, analítico y redactado de manera formal que resuma el estado del servicio, producto y recomendación principal de fidelización>",
-      "actionableInsights": [<lista de hasta 4 acciones estratégicas recomendadas para aumentar la retención de clientes>]
+      "actionableInsights": [<lista de hasta 4 acciones estratégicas recomendadas para aumentar la retención de clientes>],
+      "criticalAlerts": [
+        {
+          "answerId": "<ID de la respuesta del feedback original (ej: ans_123)>",
+          "customerName": "<Nombre del socio>",
+          "customerFolio": "<Folio del socio>",
+          "questionText": "<Texto de la pregunta evaluada>",
+          "answerText": "<Texto de la respuesta o comentario crítico>",
+          "aiAnalysis": "<Análisis del riesgo de desuscripción de este cliente y recomendación directa y ultra-específica que el gerente de Mi Cafecito debe tomar hoy mismo para mitigar la molestia>"
+        }
+      ]
     }
     
     REGLA: Responde ÚNICAMENTE con el objeto JSON, asegúrate de que sea JSON válido sin texto adicional, explicaciones ni tags markdown como \`\`\`json.`;
@@ -329,14 +390,20 @@ app.post("/api/gemini/marketing-conclusion", async (req, res) => {
     let response;
     try {
       response = await ai_genai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        },
       });
     } catch (e1) {
-      console.warn("[GEMINI] First attempt with gemini-2.5-flash failed, retrying with gemini-1.5-flash:", e1);
+      console.warn("[GEMINI] First attempt with gemini-3.5-flash failed, retrying with gemini-flash-latest:", e1);
       response = await ai_genai.models.generateContent({
-        model: "gemini-1.5-flash",
+        model: "gemini-flash-latest",
         contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        },
       });
     }
 
