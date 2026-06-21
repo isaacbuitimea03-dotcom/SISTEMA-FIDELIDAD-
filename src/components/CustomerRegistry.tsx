@@ -184,7 +184,22 @@ export default function CustomerRegistry({
     const greeting = isToday ? '¡Feliz Cumpleaños! 🥳🎂' : '¡Ya casi es tu cumpleaños! 🎉🎈';
     const text = encodeURIComponent(`Hola *${customer.name}* ${greeting} de parte de todo el equipo de *Café & Bistró La Estancia* ☕🍳.\n\nQueremos consentirte en tu día especial de cumpleaños. Te invitamos a visitarnos para obsequiarte un delicioso Postre Gourmet gratis 🍰.\n\nY al presentar tu tarjeta física con el folio *#${customer.folio}*, obtendrás doble sella en todos tus consumos de hoy.\n\n¡Te esperamos con los brazos abiertos!`);
     
-    const cleanPhone = customer.phone.replace(/[^\d+]/g, '');
+    let cleanPhone = customer.phone.replace(/[^\d]/g, '');
+    
+    // Normalize to Mexican WhatsApp formatting (52 country prefix)
+    if (cleanPhone.length === 10) {
+      // 10-digit local mobile, prepended 52
+      cleanPhone = `52${cleanPhone}`;
+    } else if (cleanPhone.length === 11 && cleanPhone.startsWith('1')) {
+      // 1 + 10 digits, convert to 52 + 10 digits
+      cleanPhone = `52${cleanPhone.substring(1)}`;
+    } else if (cleanPhone.length > 0 && !cleanPhone.startsWith('52')) {
+      // Any other number that doesn't start with 52, auto-prefix 52 if it looks like a local format
+      if (cleanPhone.length <= 11) {
+        cleanPhone = `52${cleanPhone}`;
+      }
+    }
+    
     window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${text}`, '_blank');
   };
 
