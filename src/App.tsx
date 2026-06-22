@@ -3145,9 +3145,12 @@ export default function App() {
                 
                 {/* Header segment */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                  <div className="space-y-0.5">
-                    <h1 className="text-3xl font-serif font-black tracking-tight text-slate-950">Clientes</h1>
-                    <p className="text-xs text-[#149b8f] font-sans font-bold uppercase tracking-wider">{totalRegistered} de 500 tarjetas asignadas</p>
+                  <div className="flex items-center gap-3">
+                    <MiCafecitoLogo size={48} className="rounded-full shadow-sm shrink-0" />
+                    <div className="space-y-0.5">
+                      <h1 className="text-3xl font-serif font-black tracking-tight text-slate-950">Clientes</h1>
+                      <p className="text-xs text-[#149b8f] font-sans font-bold uppercase tracking-wider">{totalRegistered} de 500 tarjetas asignadas</p>
+                    </div>
                   </div>
 
                   <button
@@ -3460,9 +3463,12 @@ export default function App() {
             {/* 5. PORTAL VIEW TABS: ADMINISTRATIVE REPORTS PANEL (Screen 9, 10, 11, 12) */}
             {activeTab === 'reportes' && (
               <div className="space-y-6 text-left">
-                <div className="space-y-0.5">
-                  <h1 className="text-3xl font-serif font-black tracking-tight text-slate-950">Reportes</h1>
-                  <p className="text-xs text-slate-400 font-mono font-medium">Consola gerencial de auditorías registradas</p>
+                <div className="flex items-center gap-3">
+                  <MiCafecitoLogo size={48} className="rounded-full shadow-sm shrink-0" />
+                  <div className="space-y-0.5">
+                    <h1 className="text-3xl font-serif font-black tracking-tight text-slate-950">Reportes</h1>
+                    <p className="text-xs text-slate-400 font-mono font-medium">Consola gerencial de auditorías registradas</p>
+                  </div>
                 </div>
 
                 {/* Secure auth safeguard before rendering panel */}
