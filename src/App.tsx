@@ -1515,6 +1515,39 @@ export default function App() {
     setTimeout(() => setSystemBannerAlert(null), 3000);
   };
 
+  // BIRTHDAY WHATSAPP CONFIRMATION ACTION
+  const handleConfirmBirthdayWhatsApp = async (customerFolio: string, clerkCode: string, clerkName: string) => {
+    let targetCustomerName = '';
+    const isMockSimulation = customerFolio.startsWith('SIMULATION-');
+
+    if (isMockSimulation) {
+      targetCustomerName = customerFolio.replace('SIMULATION-', '');
+    } else {
+      const targetCustomer = consumers.find(c => c.folio === customerFolio);
+      if (!targetCustomer) return;
+      targetCustomerName = targetCustomer.name;
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    const logRecord: ActivityLog = {
+      id: 'log_wa_' + customerFolio + '_' + currentYear + '_' + Date.now(),
+      type: 'birthday_whatsapp' as any,
+      amount: 1,
+      title: isMockSimulation ? `WhatsApp Cumpleañero de Prueba` : `WhatsApp Cumpleañero #${customerFolio}`,
+      description: `Mensaje de felicitación por WhatsApp enviado por ${clerkName} (${clerkCode}) para ${targetCustomerName}.`,
+      timestamp: new Date().toISOString(),
+      clerkName,
+      clerkCode,
+      customerFolio
+    };
+
+    await syncSetLogs([logRecord, ...logs]);
+
+    setSystemBannerAlert(`¡Envío de WhatsApp registrado por ${clerkName}!`);
+    setTimeout(() => setSystemBannerAlert(null), 3000);
+  };
+
   // DECREASE / OVERRIDE STAMP ACTION WITH CLERK AUTH
   const handleDecreaseStampsWithAuth = (customerFolio: string, clerkCode: string, clerkName: string) => {
     const targetCustomer = consumers.find(c => c.folio === customerFolio);
@@ -3455,6 +3488,8 @@ export default function App() {
                   customers={consumers} 
                   clerks={CLERKS}
                   onConfirmBirthdayCall={handleConfirmBirthdayCall}
+                  onConfirmBirthdayWhatsApp={handleConfirmBirthdayWhatsApp}
+                  logs={logs}
                 />
               </div>
             )}
