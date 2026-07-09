@@ -50,6 +50,24 @@ export default function MerchantReportsTabPanel({
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'encuestas' | 'whatsapp' | 'llaves' | 'acciones'>('dashboard');
+
+  // Helper to get stamp number dynamically
+  const getStampNumberForLog = (item: ActivityLog) => {
+    if (item.stampNumber !== undefined && item.stampNumber !== null) return item.stampNumber;
+    
+    // Sort all customer logs of type stamp_added/customer_registered to assign sequenced stamp counts
+    const customerLogs = logs
+      .filter(l => 
+        l.customerFolio === item.customerFolio && 
+        ((l.type as string) === 'stamp_added' || (l.type as string) === 'customer_registered' || (l.title && l.title.includes('Sello Acreditado'))) &&
+        !(l.title && l.title.toLowerCase().includes('edici'))
+      )
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+    const idx = customerLogs.findIndex(l => l.id === item.id);
+    return idx !== -1 ? ((idx % 8) + 1) : null;
+  };
 
   // Deduplicate survey answers by id to enforce one response per unique user/participation
   // Also filter out any answers belonging to surveys that have been deleted
@@ -1832,448 +1850,526 @@ export default function MerchantReportsTabPanel({
       {/* Mock Export Success Banner Alert */}
       {showMockExportSuccess && (
         <div className="bg-emerald-50 border border-emerald-300 text-slate-800 p-4 rounded-2xl flex items-center gap-2.5 shadow-sm text-xs font-bold animate-pulse">
-          <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center">
-            <Check size={11} className="stroke-[3]" />
-          </div>
+          <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold">✓</div>
           <span>{showMockExportSuccess}</span>
         </div>
       )}
 
-      {/* Header Top Export Bar */}
-      <div className="flex flex-wrap justify-between items-center gap-3 bg bg-white border border-slate-200 p-3.5 rounded-2xl">
-        <span className="text-xs text-slate-500 font-medium">Exportar reportes del sistema para auditoria y cortes externos:</span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => triggerMockExport('Encuestas')}
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1 border border-slate-250"
-          >
-            <FileText size={13} />
-            📄 PDF Encuestas
-          </button>
-          
-          <button
-            onClick={() => triggerMockExport('Fidelidad')}
-            className="px-3.5 py-1.5 bg-[#149b8f] hover:bg-[#11847a] text-white font-bold text-xs rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center gap-1"
-          >
-            <Download size={13} />
-            📥 Reporte Fidelidad
-          </button>
-        </div>
+      {/* Sub-tab Navigation Selector */}
+      <div className="bg-slate-50 border border-slate-200 p-2 rounded-2xl flex flex-wrap gap-2 shadow-xs select-none">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('dashboard')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'dashboard'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <Sliders size={14} className={activeSubTab === 'dashboard' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Indicadores y Portales</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('encuestas')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'encuestas'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <MessageSquare size={14} className={activeSubTab === 'encuestas' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Encuestas y Campañas</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('whatsapp')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'whatsapp'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <Gift size={14} className={activeSubTab === 'whatsapp' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Mensaje de WhatsApp</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('llaves')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'llaves'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <Key size={14} className={activeSubTab === 'llaves' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Llaves y Registros</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('acciones')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'acciones'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <ClipboardList size={14} className={activeSubTab === 'acciones' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Registro de Acciones</span>
+        </button>
       </div>
 
-      {/* Portales Compartidos para Clientes (Gerente Shared Links) */}
-      <div className="grid grid-cols-1 gap-4">
-        {/* Enlace 1: Portal de Fidelidad General */}
-        <div className="bg-gradient-to-r from-teal-50/50 to-emerald-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
-          <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
-            <div className="flex items-start sm:items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
-                <Smartphone size={20} />
-              </div>
-              <div>
-                <h4 className="font-serif font-black text-slate-900 text-sm">Portal de Fidelidad para Clientes</h4>
-                <p className="text-[11px] text-slate-500 font-sans leading-normal">
-                  Permíteles registrarse, consultar sus sellos acumulados y personalizar su tarjeta virtual en producción.
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
+      {activeSubTab === 'dashboard' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          {/* Header Top Export Bar */}
+          <div className="flex flex-wrap justify-between items-center gap-3 bg bg-white border border-slate-200 p-3.5 rounded-2xl">
+            <span className="text-xs text-slate-500 font-medium">Exportar reportes del sistema para auditoria y cortes externos:</span>
+            <div className="flex gap-2">
               <button
-                onClick={() => {
-                  const link = getBaseUrl() + '/#fidelidad';
-                  navigator.clipboard.writeText(link);
-                  setCopiedLink(true);
-                  setTimeout(() => setCopiedLink(false), 2000);
-                }}
-                className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                onClick={() => triggerMockExport('Encuestas')}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1 border border-slate-250"
               >
-                {copiedLink ? (
-                  <>
-                    <Check size={14} className="text-[#149b8f]" />
-                    <span>¡Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={14} className="text-slate-500" />
-                    <span>Copiar Enlace</span>
-                  </>
-                )}
+                <FileText size={13} />
+                📄 PDF Encuestas
               </button>
-
-              <a
-                href={`${getBaseUrl()}/#fidelidad`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              
+              <button
+                onClick={() => triggerMockExport('Fidelidad')}
+                className="px-3.5 py-1.5 bg-[#149b8f] hover:bg-[#11847a] text-white font-bold text-xs rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center gap-1"
               >
-                <ExternalLink size={14} />
-                <span>Ver Portal (Vercel)</span>
-              </a>
+                <Download size={13} />
+                📥 Reporte Fidelidad
+              </button>
             </div>
           </div>
 
-          <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
-            <span className="truncate select-all">{getBaseUrl() + '/#fidelidad'}</span>
-            <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
-              TARJETA DIGITAL
-            </span>
-          </div>
-
-          {/* Development / Testing quick helper */}
-          {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
-            <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
-              <p className="text-[10px] text-amber-800 font-sans leading-normal">
-                ⚠️ <strong>Nota de Pruebas:</strong> El botón anterior abre tu web pública de <strong>Vercel</strong>, la cual aún no tiene tus últimos cambios guardados hasta que los despliegues. Para probar tus sellos y tarjetas en esta versión de desarrollo, haz clic abajo:
-              </p>
-              <a
-                href={`${window.location.origin}/#fidelidad`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition shadow-sm"
-              >
-                <Smartphone size={12} className="stroke-[2.5]" />
-                <span>Probar Portal en Entorno de Pruebas (Local) →</span>
-              </a>
-            </div>
-          )}
-
-          {/* QR Code Section for Fidelidad */}
-          <div className="pt-4 border-t border-slate-200/60 font-sans">
-            <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
-              <QrCode size={13} className="text-[#149b8f]" />
-              <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
-            </h5>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* QR Producción */}
-              <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
-                <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
-                  SOCIOS EN PRODUCCIÓN (VERCEL)
-                </div>
-                <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
-                  {qrFidelidadProd ? (
-                    <img src={qrFidelidadProd} alt="QR Fidelidad Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
-                  Escanea para registrar visitas, consultar sellos y ver la tarjeta virtual real de producción.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => downloadQRCode(qrFidelidadProd, 'QR_Fidelidad_Clientes_Prod.png')}
-                  disabled={!qrFidelidadProd}
-                  className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                >
-                  <Download size={12} />
-                  <span>Descargar QR Producción (PNG)</span>
-                </button>
-              </div>
-
-              {/* QR Entorno Local */}
-              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
-                <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
-                  <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
-                    ENTORNO DE PRUEBAS (ACTUAL)
+          {/* Portales Compartidos para Clientes (Gerente Shared Links) */}
+          <div className="grid grid-cols-1 gap-4">
+            {/* Enlace 1: Portal de Fidelidad General */}
+            <div className="bg-gradient-to-r from-teal-50/50 to-emerald-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
+              <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
+                    <Smartphone size={20} />
                   </div>
-                  <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
-                    {qrFidelidadDev ? (
-                      <img src={qrFidelidadDev} alt="QR Fidelidad Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
-                    )}
+                  <div>
+                    <h4 className="font-serif font-black text-slate-900 text-sm">Portal de Fidelidad para Clientes</h4>
+                    <p className="text-[11px] text-slate-500 font-sans leading-normal">
+                      Permíteles registrarse, consultar sus sellos acumulados y personalizar su tarjeta virtual en producción.
+                    </p>
                   </div>
-                  <p className="text-[10px] text-amber-850/80 leading-normal max-w-xs">
-                    Escanea para realizar pruebas en el servidor de desarrollo activo actual.
-                  </p>
+                </div>
+                
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
                   <button
-                    type="button"
-                    onClick={() => downloadQRCode(qrFidelidadDev, 'QR_Fidelidad_Clientes_Pruebas.png')}
-                    disabled={!qrFidelidadDev}
-                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    onClick={() => {
+                      const link = getBaseUrl() + '/#fidelidad';
+                      navigator.clipboard.writeText(link);
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    }}
+                    className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                   >
-                    <Download size={12} />
-                    <span>Descargar QR Pruebas (PNG)</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Enlace 2: Portal de Encuestas de Consumidores */}
-        <div className="bg-gradient-to-r from-teal-50/50 to-indigo-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
-          <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
-            <div className="flex items-start sm:items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
-                <MessageSquare size={20} className="text-[#149b8f]" />
-              </div>
-              <div>
-                <h4 className="font-serif font-black text-slate-900 text-sm flex items-center gap-2">
-                  Portal de Encuestas de Consumidores
-                  <span className="bg-[#149b8f]/10 text-[#149b8f] text-[9px] font-black uppercase px-2 py-0.5 rounded-full select-none">
-                    ENCUESTAS 💬
-                  </span>
-                </h4>
-                <p className="text-[11px] text-slate-500 font-sans leading-normal">
-                  Accede al panel donde los socios y comensales responden campañas de satisfacción vigentes para calificar su experiencia de servicio.
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
-              <button
-                onClick={() => {
-                  const link = getBaseUrl() + '/#portal_encuestas';
-                  navigator.clipboard.writeText(link);
-                  setCopiedSurveyLink(true);
-                  setTimeout(() => setCopiedSurveyLink(false), 2050);
-                }}
-                className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                {copiedSurveyLink ? (
-                  <>
-                    <Check size={14} className="text-[#149b8f]" />
-                    <span>¡Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={14} className="text-slate-500" />
-                    <span>Copiar Enlace</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (onEnterPublicSurveyPortal) {
-                    onEnterPublicSurveyPortal();
-                  } else {
-                    window.location.hash = 'portal_encuestas';
-                  }
-                }}
-                className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                <ExternalLink size={14} />
-                <span>Ir al Portal (Esta Pestaña)</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
-            <span className="truncate select-all">{getBaseUrl() + '/#portal_encuestas'}</span>
-            <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
-              SATISFACCIÓN DEL CLIENTE
-            </span>
-          </div>
-
-          {/* Development / Testing quick helper */}
-          {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
-            <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
-              <p className="text-[10px] text-amber-800 font-sans leading-normal">
-                ⚠️ <strong>Nota de Pruebas:</strong> Hazle clic en "Ir al Portal" para probar de forma directa tus cambios en esta pestaña en modo cliente.
-              </p>
-            </div>
-          )}
-
-          {/* QR Code Section for Encuestas */}
-          <div className="pt-4 border-t border-slate-200/60 font-sans">
-            <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
-              <QrCode size={13} className="text-[#149b8f]" />
-              <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
-            </h5>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* QR Producción */}
-              <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
-                <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
-                  ENCUESTAS EN PRODUCCIÓN (VERCEL)
-                </div>
-                <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
-                  {qrEncuestasProd ? (
-                    <img src={qrEncuestasProd} alt="QR Encuestas Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
-                  Escanea para que los socios abran directamente el cuestionario público de satisfacción.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => downloadQRCode(qrEncuestasProd, 'QR_Encuestas_Clientes_Prod.png')}
-                  disabled={!qrEncuestasProd}
-                  className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                >
-                  <Download size={12} />
-                  <span>Descargar QR Producción (PNG)</span>
-                </button>
-              </div>
-
-              {/* QR Entorno Local */}
-              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
-                <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
-                  <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
-                    ENTORNO DE PRUEBAS (ACTUAL)
-                  </div>
-                  <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
-                    {qrEncuestasDev ? (
-                      <img src={qrEncuestasDev} alt="QR Encuestas Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                    {copiedLink ? (
+                      <>
+                        <Check size={14} className="text-[#149b8f]" />
+                        <span>¡Copiado!</span>
+                      </>
                     ) : (
-                      <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
+                      <>
+                        <Copy size={14} className="text-slate-500" />
+                        <span>Copiar Enlace</span>
+                      </>
                     )}
-                  </div>
-                  <p className="text-[10px] text-amber-800/80 leading-normal max-w-xs">
-                    Escanea para responder encuestas conectadas al entorno de desarrollo actual.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => downloadQRCode(qrEncuestasDev, 'QR_Encuestas_Clientes_Pruebas.png')}
-                    disabled={!qrEncuestasDev}
-                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Download size={12} />
-                    <span>Descargar QR Pruebas (PNG)</span>
                   </button>
+
+                  <a
+                    href={`${getBaseUrl()}/#fidelidad`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <ExternalLink size={14} />
+                    <span>Ver Portal (Vercel)</span>
+                  </a>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Grid of 4 metrics Cards (Screen 9) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Clientes Registrados', value: customers.length, color: 'text-[#149b8f]' },
-          { label: 'Visitas Totales', value: visits.length, color: 'text-slate-800' },
-          { label: 'Premios Otorgados', value: customers.reduce((sum, c) => sum + (c.unlockedVouchers?.length || 0), 0), color: 'text-rose-600' },
-          { label: 'Promedio Visitas/Cliente', value: customers.length > 0 ? (visits.length / customers.length).toFixed(1) : '0.0', color: 'text-teal-700' }
-        ].map((met, idx) => (
-          <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <p className="text-[10px] uppercase font-sans text-slate-400 font-bold tracking-wider">{met.label}</p>
-            <h3 className={`text-2xl font-serif font-black ${met.color} mt-1.5`}>{met.value}</h3>
-          </div>
-        ))}
-      </div>
-
-      {/* ⚙ PLANTILLA DE FELICITACIÓN DE CUMPLEAÑOS & AUTOMATIZACIÓN DE WHATSAPP */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-150 pb-3">
-          <span className="p-2 bg-[#149b8f]/5 text-[#149b8f] rounded-xl flex items-center justify-center">
-            <Gift size={20} />
-          </span>
-          <div>
-            <h4 className="font-serif font-black text-slate-900 text-sm">
-              Plantilla de Felicitación de Cumpleaños & Automatización de WhatsApp
-            </h4>
-            <p className="text-[10px] text-slate-400 font-sans uppercase tracking-[0.05em] font-bold">
-              Configurador de Campañas de Cumpleaños
-            </p>
-          </div>
-        </div>
-
-        <p className="text-xs text-slate-500 leading-relaxed">
-          Diseña la redacción para enviar por WhatsApp o copiar al portapapeles en la sección de Cumpleaños. El sistema sustituirá automáticamente las variables <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;nombre&#125;</code>, <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;fecha&#125;</code> y <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;folio&#125;</code> con los datos reales de cada socio.
-        </p>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Editor block */}
-          <div className="space-y-3 text-left">
-            <label className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider block">Redacción del Mensaje</label>
-            <textarea
-              className="w-full text-xs font-sans text-slate-700 border border-slate-250 rounded-xl p-3.5 focus:outline-none focus:ring-2 focus:ring-[#149b8f]/50 focus:border-[#149b8f] min-h-[110px]"
-              value={bdayTemplate}
-              onChange={(e) => handleUpdateTemplate(e.target.value)}
-              placeholder="Escribe el mensaje de felicitación de cumpleaños aquí..."
-            />
-            {/* Quick cheat-sheet buttons */}
-            <div className="flex flex-wrap gap-1.5 pt-0.5">
-              <span className="text-[10px] text-slate-400 font-bold self-center">Insertar:</span>
-              <button
-                type="button"
-                onClick={() => handleUpdateTemplate(bdayTemplate + ' {nombre}')}
-                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                &#123;nombre&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdateTemplate(bdayTemplate + ' {fecha}')}
-                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                &#123;fecha&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdateTemplate(bdayTemplate + ' {folio}')}
-                className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                &#123;folio&#125;
-              </button>
-            </div>
-          </div>
-
-          {/* Right Preview Column which also contains constraints */}
-          <div className="space-y-4 flex flex-col justify-between">
-            {/* Live mockup preview display */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 relative space-y-2.5 text-left">
-              <span className="absolute top-2.5 right-2.5 text-[8px] uppercase tracking-widest font-black text-slate-400 font-sans">Vista Previa</span>
-              <p className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider">Así se enviará el mensaje:</p>
-              <div className="bg-white border border-slate-150 p-3 rounded-xl text-xs text-slate-600 leading-relaxed max-h-[110px] overflow-y-auto font-sans shadow-sm">
-                {getCustomGreeting("Sofía García", "1087", "10 de Junio")}
               </div>
-            </div>
 
-            {/* Checkbox rule constraints: Only enable for birthdays on the current day */}
-            <label className="flex items-start gap-3 bg-[#149b8f]/5 rounded-2xl border border-[#149b8f]/10 p-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={onlyTodayActive}
-                onChange={(e) => handleUpdateOnlyTodayActive(e.target.checked)}
-                className="mt-1 accent-[#149b8f]"
-              />
-              <div className="text-left">
-                <span className="text-xs font-black text-slate-800 block">Solo activar botones el día del cumpleaños</span>
-                <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
-                  Si se activa (recomendado), los botones de <strong>Copiar</strong> y de <strong>WhatsApp</strong> en la sección de cumpleaños se habilitarán *exclusivamente* para los socios cuya fecha de cumpleaños sea el día de hoy. Para el resto de los días, se habilitará un candado de seguridad preventiva.
+              <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
+                <span className="truncate select-all">{getBaseUrl() + '/#fidelidad'}</span>
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
+                  TARJETA DIGITAL
                 </span>
               </div>
-            </label>
+
+              {/* Development / Testing quick helper */}
+              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
+                  <p className="text-[10px] text-amber-800 font-sans leading-normal">
+                    ⚠️ <strong>Nota de Pruebas:</strong> El botón anterior abre tu web pública de <strong>Vercel</strong>, la cual aún no tiene tus últimos cambios guardados hasta que los despliegues. Para probar tus sellos y tarjetas en esta versión de desarrollo, haz clic abajo:
+                  </p>
+                  <a
+                    href={`${window.location.origin}/#fidelidad`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition shadow-sm"
+                  >
+                    <Smartphone size={12} className="stroke-[2.5]" />
+                    <span>Probar Portal en Entorno de Pruebas (Local) →</span>
+                  </a>
+                </div>
+              )}
+
+              {/* QR Code Section for Fidelidad */}
+              <div className="pt-4 border-t border-slate-200/60 font-sans">
+                <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
+                  <QrCode size={13} className="text-[#149b8f]" />
+                  <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
+                </h5>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* QR Producción */}
+                  <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                    <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                      SOCIOS EN PRODUCCIÓN (VERCEL)
+                    </div>
+                    <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
+                      {qrFidelidadProd ? (
+                        <img src={qrFidelidadProd} alt="QR Fidelidad Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
+                      Escanea para registrar visitas, consultar sellos y ver la tarjeta virtual real de producción.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => downloadQRCode(qrFidelidadProd, 'QR_Fidelidad_Clientes_Prod.png')}
+                      disabled={!qrFidelidadProd}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Download size={12} />
+                      <span>Descargar QR Producción (PNG)</span>
+                    </button>
+                  </div>
+
+                  {/* QR Entorno Local */}
+                  {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                    <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                      <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                        ENTORNO DE PRUEBAS (ACTUAL)
+                      </div>
+                      <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
+                        {qrFidelidadDev ? (
+                          <img src={qrFidelidadDev} alt="QR Fidelidad Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-amber-850/80 leading-normal max-w-xs">
+                        Escanea para realizar pruebas en el servidor de desarrollo activo actual.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => downloadQRCode(qrFidelidadDev, 'QR_Fidelidad_Clientes_Pruebas.png')}
+                        disabled={!qrFidelidadDev}
+                        className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Download size={12} />
+                        <span>Descargar QR Pruebas (PNG)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Enlace 2: Portal de Encuestas de Consumidores */}
+            <div className="bg-gradient-to-r from-teal-50/50 to-indigo-50/55 border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4 text-left">
+              <div className="flex items-start gap-4 flex-col sm:flex-row sm:items-center justify-between">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#149b8f]/10 text-[#149b8f] flex items-center justify-center shrink-0">
+                    <MessageSquare size={20} className="text-[#149b8f]" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif font-black text-slate-900 text-sm flex items-center gap-2">
+                      Portal de Encuestas de Consumidores
+                      <span className="bg-[#149b8f]/10 text-[#149b8f] text-[9px] font-black uppercase px-2 py-0.5 rounded-full select-none">
+                        ENCUESTAS 💬
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 font-sans leading-normal">
+                      Accede al panel donde los socios y comensales responden campañas de satisfacción vigentes para calificar su experiencia de servicio.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 select-none">
+                  <button
+                    onClick={() => {
+                      const link = getBaseUrl() + '/#portal_encuestas';
+                      navigator.clipboard.writeText(link);
+                      setCopiedSurveyLink(true);
+                      setTimeout(() => setCopiedSurveyLink(false), 2050);
+                    }}
+                    className="flex-grow sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-205 rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    {copiedSurveyLink ? (
+                      <>
+                        <Check size={14} className="text-[#149b8f]" />
+                        <span>¡Copiado!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} className="text-slate-500" />
+                        <span>Copiar Enlace</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onEnterPublicSurveyPortal) {
+                        onEnterPublicSurveyPortal();
+                      } else {
+                        window.location.hash = 'portal_encuestas';
+                      }
+                    }}
+                    className="flex-grow sm:flex-none px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <ExternalLink size={14} />
+                    <span>Ir al Portal (Esta Pestaña)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white/85 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 text-xs font-mono text-slate-600">
+                <span className="truncate select-all">{getBaseUrl() + '/#portal_encuestas'}</span>
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-[#149b8f] bg-[#149b8f]/5 border border-[#149b8f]/10 px-2 py-0.5 rounded-md font-sans shrink-0 select-none">
+                  SATISFACCIÓN DEL CLIENTE
+                </span>
+              </div>
+
+              {/* Development / Testing quick helper */}
+              {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2 text-left">
+                  <p className="text-[10px] text-amber-800 font-sans leading-normal">
+                    ⚠️ <strong>Nota de Pruebas:</strong> Hazle clic en "Ir al Portal" para probar de forma directa tus cambios en esta pestaña en modo cliente.
+                  </p>
+                </div>
+              )}
+
+              {/* QR Code Section for Encuestas */}
+              <div className="pt-4 border-t border-slate-200/60 font-sans">
+                <h5 className="text-[10px] font-black text-[#149b8f] uppercase tracking-widest mb-3 flex items-center gap-1.5 select-none">
+                  <QrCode size={13} className="text-[#149b8f]" />
+                  <span>CÓDIGOS QR DE ACCESO (DESCARGABLES EN PNG)</span>
+                </h5>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* QR Producción */}
+                  <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                    <div className="absolute top-2 left-2 bg-emerald-500/10 text-emerald-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                      ENCUESTAS EN PRODUCCIÓN (VERCEL)
+                    </div>
+                    <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-slate-100 group-hover:scale-105 transition-transform duration-300">
+                      {qrEncuestasProd ? (
+                        <img src={qrEncuestasProd} alt="QR Encuestas Producción" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="animate-pulse text-slate-400 text-[10px]">Generando QR...</div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-normal max-w-xs">
+                      Escanea para que los socios abran directamente el cuestionario público de satisfacción.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => downloadQRCode(qrEncuestasProd, 'QR_Encuestas_Clientes_Prod.png')}
+                      disabled={!qrEncuestasProd}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-850 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Download size={12} />
+                      <span>Descargar QR Producción (PNG)</span>
+                    </button>
+                  </div>
+
+                  {/* QR Entorno Local */}
+                  {typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')) && (
+                    <div className="bg-white/95 border border-amber-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3 relative overflow-hidden group shadow-xs">
+                      <div className="absolute top-2 left-2 bg-amber-500/10 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded select-none">
+                        ENTORNO DE PRUEBAS (ACTUAL)
+                      </div>
+                      <div className="w-32 h-32 bg-slate-50 rounded-xl flex items-center justify-center p-2 border border-amber-100 group-hover:scale-105 transition-transform duration-300">
+                        {qrEncuestasDev ? (
+                          <img src={qrEncuestasDev} alt="QR Encuestas Pruebas" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="animate-pulse text-amber-600 text-[10px]">Generando QR...</div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-amber-800/80 leading-normal max-w-xs">
+                        Escanea para responder encuestas conectadas al entorno de desarrollo actual.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => downloadQRCode(qrEncuestasDev, 'QR_Encuestas_Clientes_Pruebas.png')}
+                        disabled={!qrEncuestasDev}
+                        className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Download size={12} />
+                        <span>Descargar QR Pruebas (PNG)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Grid of 4 metrics Cards (Screen 9) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Clientes Registrados', value: customers.length, color: 'text-[#149b8f]' },
+              { label: 'Visitas Totales', value: visits.length, color: 'text-slate-800' },
+              { label: 'Premios Otorgados', value: customers.reduce((sum, c) => sum + (c.unlockedVouchers?.length || 0), 0), color: 'text-rose-600' },
+              { label: 'Promedio Visitas/Cliente', value: customers.length > 0 ? (visits.length / customers.length).toFixed(1) : '0.0', color: 'text-teal-700' }
+            ].map((met, idx) => (
+              <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <p className="text-[10px] uppercase font-sans text-slate-400 font-bold tracking-wider">{met.label}</p>
+                <h3 className={`text-2xl font-serif font-black ${met.color} mt-1.5`}>{met.value}</h3>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
+
+      {activeSubTab === 'whatsapp' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          {/* ⚙ PLANTILLA DE FELICITACIÓN DE CUMPLEAÑOS & AUTOMATIZACIÓN DE WHATSAPP */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-150 pb-3">
+              <span className="p-2 bg-[#149b8f]/5 text-[#149b8f] rounded-xl flex items-center justify-center">
+                <Gift size={20} />
+              </span>
+              <div>
+                <h4 className="font-serif font-black text-slate-900 text-sm">
+                  Plantilla de Felicitación de Cumpleaños & Automatización de WhatsApp
+                </h4>
+                <p className="text-[10px] text-slate-400 font-sans uppercase tracking-[0.05em] font-bold">
+                  Configurador de Campañas de Cumpleaños
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Diseña la redacción para enviar por WhatsApp o copiar al portapapeles en la sección de Cumpleaños. El sistema sustituirá automáticamente las variables <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;nombre&#125;</code>, <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;fecha&#125;</code> y <code className="font-mono bg-slate-100 px-1 py-0.5 text-blue-750 rounded font-bold">&#123;folio&#125;</code> con los datos reales de cada socio.
+            </p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Editor block */}
+              <div className="space-y-3 text-left">
+                <label className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider block">Redacción del Mensaje</label>
+                <textarea
+                  className="w-full text-xs font-sans text-slate-700 border border-slate-250 rounded-xl p-3.5 focus:outline-none focus:ring-2 focus:ring-[#149b8f]/50 focus:border-[#149b8f] min-h-[110px]"
+                  value={bdayTemplate}
+                  onChange={(e) => handleUpdateTemplate(e.target.value)}
+                  placeholder="Escribe el mensaje de felicitación de cumpleaños aquí..."
+                />
+                {/* Quick cheat-sheet buttons */}
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  <span className="text-[10px] text-slate-400 font-bold self-center">Insertar:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateTemplate(bdayTemplate + ' {nombre}')}
+                    className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                  >
+                    &#123;nombre&#125;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateTemplate(bdayTemplate + ' {fecha}')}
+                    className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                  >
+                    &#123;fecha&#125;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateTemplate(bdayTemplate + ' {folio}')}
+                    className="text-[10px] font-mono bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                  >
+                    &#123;folio&#125;
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Preview Column which also contains constraints */}
+              <div className="space-y-4 flex flex-col justify-between">
+                {/* Live mockup preview display */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 relative space-y-2.5 text-left">
+                  <span className="absolute top-2.5 right-2.5 text-[8px] uppercase tracking-widest font-black text-slate-400 font-sans">Vista Previa</span>
+                  <p className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider">Así se enviará el mensaje:</p>
+                  <div className="bg-white border border-slate-150 p-3 rounded-xl text-xs text-slate-600 leading-relaxed max-h-[110px] overflow-y-auto font-sans shadow-sm">
+                    {getCustomGreeting("Sofía García", "1087", "10 de Junio")}
+                  </div>
+                </div>
+
+                {/* Checkbox rule constraints: Only enable for birthdays on the current day */}
+                <label className="flex items-start gap-3 bg-[#149b8f]/5 rounded-2xl border border-[#149b8f]/10 p-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={onlyTodayActive}
+                    onChange={(e) => handleUpdateOnlyTodayActive(e.target.checked)}
+                    className="mt-1 accent-[#149b8f]"
+                  />
+                  <div className="text-left">
+                    <span className="text-xs font-black text-slate-800 block">Solo activar botones el día del cumpleaños</span>
+                    <span className="text-[11px] text-slate-500 leading-snug block mt-0.5">
+                      Si se activa (recomendado), los botones de <strong>Copiar</strong> y de <strong>WhatsApp</strong> en la sección de cumpleaños se habilitarán *exclusivamente* para los socios cuya fecha de cumpleaños sea el día de hoy. Para el resto de los días, se habilitará un candado de seguridad preventiva.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Period Select Filter Tab Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm space-y-3">
-        <p className="text-xs font-bold text-slate-700 uppercase tracking-wider font-sans">Filtrar registros por período:</p>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            { id: 'todo', label: 'Todo' },
-            { id: 'semana', label: 'Esta semana' },
-            { id: 'mes', label: 'Este mes' },
-            { id: 'anio', label: 'Este año' }
-          ].map(btn => (
-            <button
-              key={btn.id}
-              onClick={() => setFilterPeriod(btn.id as any)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                filterPeriod === btn.id
-                  ? 'bg-slate-900 border-slate-950 text-white'
-                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-              }`}
-            >
-              {btn.label}
-            </button>
-          ))}
+      {activeSubTab === 'acciones' && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm space-y-3">
+          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider font-sans">Filtrar registros por período:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { id: 'todo', label: 'Todo' },
+              { id: 'semana', label: 'Esta semana' },
+              { id: 'mes', label: 'Este mes' },
+              { id: 'anio', label: 'Este año' }
+            ].map(btn => (
+              <button
+                key={btn.id}
+                onClick={() => setFilterPeriod(btn.id as any)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  filterPeriod === btn.id
+                    ? 'bg-slate-900 border-slate-950 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                }`}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 📊 PANEL DE VISUALIZACIÓN GRÁFICA MULTIVARIABLE (STAMP CLUBS & LOG TRADING) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+      {activeSubTab === 'dashboard' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
         <div className="border-b border-slate-150 pb-2.5 flex items-center justify-between flex-wrap gap-2">
           <h4 className="font-serif font-black text-slate-900 text-sm flex items-center gap-2">
             <Sparkles size={16} className="text-[#149b8f]" />
@@ -2508,9 +2604,13 @@ export default function MerchantReportsTabPanel({
           </div>
         </div>
       </div>
+        </div>
+      )}
 
       {/* SECCIÓN GESTIÓN DE ENCARGADOS Y CLAVES PIN */}
-      <div id="gestor-encargados-container" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+      {activeSubTab === 'llaves' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          <div id="gestor-encargados-container" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
         <div className="border-b border-slate-150 pb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-650 flex items-center justify-center shrink-0 border border-indigo-100">
@@ -2841,9 +2941,13 @@ export default function MerchantReportsTabPanel({
           </div>
         )}
       </div>
+        </div>
+      )}
 
       {/* DISEÑO DE ENCUESTAS Y CAMPAÑAS DE FIDELIDAD */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5 text-left">
+      {activeSubTab === 'encuestas' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5 text-left">
         <h3 className="font-serif font-black text-base text-slate-900 border-b border-slate-150 pb-2 flex items-center gap-1.5">
           <MessageSquare size={18} className="text-[#149b8f]" />
           Diseño de Encuestas y Campañas de Fidelidad
@@ -3351,9 +3455,13 @@ export default function MerchantReportsTabPanel({
 
         </div>
       </div>
+        </div>
+      )}
 
       {/* Registro Detallado de Acciones Table (Screen 10) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+      {activeSubTab === 'acciones' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
         <h3 className="font-serif font-black text-base text-slate-900 border-b border-slate-150 pb-2 flex items-center gap-1.5">
           <Sliders size={18} className="text-[#149b8f]" />
           Registro Detallado de Acciones
@@ -3398,24 +3506,97 @@ export default function MerchantReportsTabPanel({
                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                     hour12: false
                   });
+                  const isModifiedAction = item.type === 'customer_edited' || 
+                                           item.type === 'customer_deleted' ||
+                                           (item.title && (
+                                             item.title.toLowerCase().includes('edici') || 
+                                             item.title.toLowerCase().includes('eliminad') ||
+                                             item.title.toLowerCase().includes('borrad')
+                                           ));
                   return (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition">
+                    <tr 
+                      key={item.id} 
+                      className={`transition ${
+                        isModifiedAction 
+                          ? 'bg-yellow-50 hover:bg-yellow-100/80 border-l-4 border-l-yellow-400' 
+                          : 'hover:bg-slate-50/50'
+                      }`}
+                    >
                       <td className="p-3.5 text-slate-400 font-mono text-[11px] whitespace-nowrap">{dateStr}</td>
                       <td className="p-3.5">
-                        <span className="font-mono bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200">
-                          {item.clerkCode || 'GER'}
-                        </span>
-                        <span className="ml-1.5 font-medium text-slate-650">{item.clerkName || 'Gerencia'}</span>
+                        {item.clerkCode && item.clerkName && item.clerkCode !== 'SYS' && item.clerkName !== 'Anónimo' ? (
+                          <>
+                            <span className="font-mono bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200">
+                              {item.clerkCode}
+                            </span>
+                            <span className="ml-1.5 font-medium text-slate-650">{item.clerkName}</span>
+                          </>
+                        ) : item.type === 'birthday_call' || (item.type as string) === 'birthday_whatsapp' ? (
+                          <span className="text-slate-400 italic font-medium">Anónimo</span>
+                        ) : (
+                          <>
+                            <span className="font-mono bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200">
+                              {item.clerkCode || 'GER'}
+                            </span>
+                            <span className="ml-1.5 font-medium text-slate-650">{item.clerkName || 'Gerencia'}</span>
+                          </>
+                        )}
                       </td>
                       <td className="p-3.5 font-bold text-slate-800">
                         {item.title?.replace('Registro de Visita #', 'Cliente #') || 'Socio'} 
                         <span className="block text-[10px] text-slate-400 font-normal">{item.description?.split(' para ')?.[1] || ''}</span>
                       </td>
-                      <td className="p-3.5 text-slate-600">
-                        {item.type === 'birthday_call' ? '📞 Llamada Cumpleaños' : (item.type as string) === 'customer_registered' ? '🆕 Registro Nuevo' : '☕ Visita registrada'}
+                      <td className="p-3.5 text-slate-600 font-medium">
+                        {item.type === 'birthday_call' ? (
+                          '📞 Llamada Cumpleaños'
+                        ) : (item.type as string) === 'birthday_whatsapp' ? (
+                          '💬 WhatsApp Cumpleaños'
+                        ) : (item.type === 'customer_edited' || (item.title && item.title.toLowerCase().includes('edici'))) ? (
+                          <span className="text-amber-800 font-bold flex items-center gap-1.5">
+                            ✏️ Edición de Cliente
+                          </span>
+                        ) : (item.type === 'customer_deleted' || (item.title && (item.title.toLowerCase().includes('eliminad') || item.title.toLowerCase().includes('borrad')))) ? (
+                          <span className="text-amber-800 font-bold flex items-center gap-1.5">
+                            ❌ Cliente Eliminado
+                          </span>
+                        ) : (item.type as string) === 'customer_registered' ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span>🆕 Registro Nuevo</span>
+                            {(() => {
+                              const sNum = getStampNumberForLog(item);
+                              return sNum ? (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-100/60 border border-emerald-200/50 px-1.5 py-0.5 rounded-md font-extrabold w-fit">
+                                  Taza #{sNum} de Bienvenida
+                                </span>
+                              ) : null;
+                            })()}
+                          </div>
+                        ) : (item.type as string) === 'stamp_added' ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span>☕ Sello Acreditado</span>
+                            {(() => {
+                              const sNum = getStampNumberForLog(item);
+                              return sNum ? (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-100/60 border border-emerald-200/50 px-1.5 py-0.5 rounded-md font-extrabold w-fit">
+                                  Taza #{sNum} registrada
+                                </span>
+                              ) : null;
+                            })()}
+                          </div>
+                        ) : (
+                          item.type as string
+                        )}
                       </td>
-                      <td className="p-3.5 text-right font-mono font-extrabold text-[#149b8f]">
-                        {item.type === 'birthday_call' ? 'Completado' : (item.type as string) === 'stamp_added' ? `+${item.amount} taza(s)` : 'Creado'}
+                      <td className={`p-3.5 text-right font-mono font-extrabold ${isModifiedAction ? 'text-amber-700' : 'text-[#149b8f]'}`}>
+                        {item.type === 'birthday_call' || (item.type as string) === 'birthday_whatsapp' 
+                          ? 'Completado' 
+                          : (item.type === 'customer_edited' || (item.title && item.title.toLowerCase().includes('edici')))
+                          ? `Modificado (${item.amount >= 0 ? '+' : ''}${item.amount})`
+                          : (item.type === 'customer_deleted' || (item.title && (item.title.toLowerCase().includes('eliminad') || item.title.toLowerCase().includes('borrad'))))
+                          ? 'Eliminado'
+                          : (item.type as string) === 'stamp_added' 
+                          ? `+${item.amount} taza(s) ${getStampNumberForLog(item) ? `(Taza #${getStampNumberForLog(item)})` : ''}` 
+                          : 'Creado'}
                       </td>
                       <td className="p-3.5 text-center whitespace-nowrap">
                         <button
@@ -3726,6 +3907,8 @@ export default function MerchantReportsTabPanel({
             </form>
 
           </div>
+        </div>
+      )}
         </div>
       )}
 

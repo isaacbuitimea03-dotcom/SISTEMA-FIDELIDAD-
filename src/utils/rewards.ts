@@ -5,7 +5,7 @@ export const DEFAULT_MERCHANT_CONFIG: MerchantConfig = {
   shopName: 'Mi Cafecito',
   brandColor: '#149b8f', // Base 44 Teal Green
   stampsRequired: 8,
-  mainRewardTitle: '20% de Descuento'
+  mainRewardTitle: '10% de Descuento'
 };
 
 export const REWARD_OPTIONS: RewardOption[] = [

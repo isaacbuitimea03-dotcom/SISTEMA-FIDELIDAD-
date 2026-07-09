@@ -30,6 +30,15 @@ export default function BirthdayTabPanel({
   const [waPinErrors, setWaPinErrors] = useState<Record<string, string>>({});
   const [waLoadingFolio, setWaLoadingFolio] = useState<string | null>(null);
 
+  const [whatsappConfirmData, setWhatsappConfirmData] = useState<{
+    folio: string;
+    customerName: string;
+    phone: string;
+    bdayLabel: string;
+    clerkName: string;
+    clerkCode: string;
+  } | null>(null);
+
   const getSpanishMonthName = (monthIdx: number) => {
     const months = [
       'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -199,38 +208,83 @@ export default function BirthdayTabPanel({
       return;
     }
 
-    setWaLoadingFolio(folio);
-    try {
-      if (onConfirmBirthdayWhatsApp) {
-        await onConfirmBirthdayWhatsApp(folio, matchedClerk.code, matchedClerk.name);
-      }
+    // Success: Set confirmation data to show custom verification modal
+    setWhatsappConfirmData({
+      folio,
+      customerName,
+      phone,
+      bdayLabel,
+      clerkName: matchedClerk.name,
+      clerkCode: matchedClerk.code
+    });
 
-      // Success: clear fields
-      setWaPinInputs(prev => {
-        const u = { ...prev };
-        delete u[folio];
-        return u;
-      });
-      setWaPinErrors(prev => {
-        const u = { ...prev };
-        delete u[folio];
-        return u;
-      });
-
-      // Launch WhatsApp API
-      handleSendWhatsApp(customerName, phone, folio, bdayLabel);
-    } catch (e) {
-      console.error(e);
-      setWaPinErrors(prev => ({ ...prev, [folio]: 'Error de conexión' }));
-    } finally {
-      setWaLoadingFolio(null);
-    }
+    // Success: clear fields
+    setWaPinInputs(prev => {
+      const u = { ...prev };
+      delete u[folio];
+      return u;
+    });
+    setWaPinErrors(prev => {
+      const u = { ...prev };
+      delete u[folio];
+      return u;
+    });
   };
 
   const currentMonthIdx = new Date().getMonth(); // Dynamic current month index
 
   return (
     <div className="w-full space-y-5 text-left">
+      {/* WhatsApp clerk confirmation modal */}
+      {whatsappConfirmData && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-left space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div>
+              <span className="text-[10px] font-black tracking-widest text-[#149b8f] uppercase font-sans">Confirmación de WhatsApp</span>
+              <h3 className="text-base font-serif font-black text-slate-900 mt-1">¿Confirmar Encargado?</h3>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                El sistema registrará que el mensaje de WhatsApp fue enviado por el encargado:
+                <strong className="block text-slate-800 text-sm mt-1.5 bg-slate-50 border border-slate-150 p-2 rounded-xl text-center font-bold">
+                  👤 {whatsappConfirmData.clerkName} ({whatsappConfirmData.clerkCode})
+                </strong>
+                para el cumpleañero <strong className="text-slate-800">{whatsappConfirmData.customerName}</strong>.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setWhatsappConfirmData(null)}
+                className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-center cursor-pointer transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const { folio, customerName, phone, bdayLabel, clerkCode, clerkName } = whatsappConfirmData;
+                  setWaLoadingFolio(folio);
+                  try {
+                    if (onConfirmBirthdayWhatsApp) {
+                      await onConfirmBirthdayWhatsApp(folio, clerkCode, clerkName);
+                    }
+                    handleSendWhatsApp(customerName, phone, folio, bdayLabel);
+                    setWhatsappConfirmData(null);
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setWaLoadingFolio(null);
+                  }
+                }}
+                className="py-2.5 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl font-extrabold text-center cursor-pointer shadow-md transition"
+              >
+                Confirmar y Abrir WA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Metrics mini layout banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-[#149b8f]/5 border border-[#149b8f]/20 rounded-2xl p-4 flex items-center gap-3">
@@ -302,13 +356,18 @@ export default function BirthdayTabPanel({
                 <div key={folio} className="bg-white/80 border border-amber-200 rounded-2xl p-4 space-y-3.5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dashed border-slate-100 pb-2">
                     <div className="space-y-0.5 text-left">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
                           #{customer.folio}
                         </span>
                         <h4 className="text-sm font-bold text-slate-900">{customer.name}</h4>
+                        {hasBeenCalled && (
+                          <span className="text-[10px] font-black tracking-wider uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-lg border border-emerald-200 flex items-center gap-1">
+                            📞 Llamada Realizada
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-600 font-medium">
+                      <p className="text-xs text-slate-600 font-medium mt-1">
                         📱 Teléfono: <strong className="text-[#149b8f] font-mono text-sm">{customer.phone}</strong>
                       </p>
                     </div>

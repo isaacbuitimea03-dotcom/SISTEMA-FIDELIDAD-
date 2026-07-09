@@ -228,8 +228,8 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.mainRewardTitle === 'Café o Bebida Gratis') {
-          parsed.mainRewardTitle = '20% de Descuento';
+        if (parsed.mainRewardTitle === 'Café o Bebida Gratis' || parsed.mainRewardTitle === '20% de Descuento') {
+          parsed.mainRewardTitle = '10% de Descuento';
         }
         parsed.stampsRequired = 8; // Guarantee 8 cups/stamps
         return parsed;
@@ -390,9 +390,16 @@ export default function App() {
         let finalConfig = config;
         const cloudConfig = cloudConfigList.find(c => c.pin !== undefined);
         if (!cloudConfig) {
-          await dbSaveConfig(config);
+          if (finalConfig.mainRewardTitle === '20% de Descuento' || finalConfig.mainRewardTitle === 'Café o Bebida Gratis') {
+            finalConfig.mainRewardTitle = '10% de Descuento';
+          }
+          await dbSaveConfig(finalConfig);
         } else {
           finalConfig = cloudConfig;
+          if (finalConfig.mainRewardTitle === '20% de Descuento' || finalConfig.mainRewardTitle === 'Café o Bebida Gratis') {
+            finalConfig.mainRewardTitle = '10% de Descuento';
+            await dbSaveConfig(finalConfig);
+          }
         }
 
         // Surveys Merge
@@ -499,7 +506,13 @@ export default function App() {
       const unsubConfig = subscribeToCollection<MerchantConfig>('config', (data) => {
         if (data && data.length > 0) {
           const mConfig = data[0];
-          if (mConfig) setConfig(mConfig);
+          if (mConfig) {
+            if (mConfig.mainRewardTitle === '20% de Descuento' || mConfig.mainRewardTitle === 'Café o Bebida Gratis') {
+              mConfig.mainRewardTitle = '10% de Descuento';
+              dbSaveConfig(mConfig);
+            }
+            setConfig(mConfig);
+          }
         }
       });
 
@@ -541,6 +554,19 @@ export default function App() {
         unsubNotifications();
       };
     });
+  }, []);
+
+  // Programmatically set Tab Title and Favicon
+  useEffect(() => {
+    document.title = "Mi Cafecito — Sistema de Fidelidad";
+    let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    link.type = 'image/svg+xml';
+    link.href = '/logo.svg';
   }, []);
 
   // Sync wrappers that intercept state changes and push them to Firestore
@@ -1424,7 +1450,8 @@ export default function App() {
       timestamp: new Date().toISOString(),
       clerkName,
       clerkCode,
-      customerFolio: targetCustomer.folio
+      customerFolio: targetCustomer.folio,
+      stampNumber: updatedStamps
     };
 
     syncSetVisits(prevV => [record, ...prevV]);
@@ -1490,7 +1517,7 @@ export default function App() {
       type: 'birthday_call',
       amount: 1,
       title: isMockSimulation ? `Llamada Cumpleañera de Prueba` : `Llamada Cumpleañera #${customerFolio}`,
-      description: `Llamada de felicitación de cumpleaños realizada por ${clerkName} (${clerkCode}) para ${targetCustomerName}.`,
+      description: `Llamada de felicitación de cumpleaños registrada para ${targetCustomerName}.`,
       timestamp: new Date().toISOString(),
       clerkName,
       clerkCode,
@@ -1535,7 +1562,7 @@ export default function App() {
       type: 'birthday_whatsapp' as any,
       amount: 1,
       title: isMockSimulation ? `WhatsApp Cumpleañero de Prueba` : `WhatsApp Cumpleañero #${customerFolio}`,
-      description: `Mensaje de felicitación por WhatsApp enviado por ${clerkName} (${clerkCode}) para ${targetCustomerName}.`,
+      description: `Mensaje de felicitación por WhatsApp registrado para ${targetCustomerName}.`,
       timestamp: new Date().toISOString(),
       clerkName,
       clerkCode,
@@ -1663,7 +1690,7 @@ export default function App() {
     const stampDiff = editCurrentStamps - editingCustomer.currentStamps;
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
-      type: 'stamp_added',
+      type: 'customer_edited',
       amount: stampDiff,
       title: `Edición de Cliente #${editFolio}`,
       description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${editFolio}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
@@ -1766,7 +1793,8 @@ export default function App() {
       timestamp: new Date().toISOString(),
       clerkName: matchedClerk.name,
       clerkCode: matchedClerk.code,
-      customerFolio: regFolio
+      customerFolio: regFolio,
+      stampNumber: 1
     };
     syncSetLogs(prevL => [logRecord, ...prevL]);
 
@@ -1807,7 +1835,7 @@ export default function App() {
     
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
-      type: 'voucher_redeemed' as any,
+      type: 'customer_deleted',
       amount: 0,
       title: `Tarjeta Eliminada #${deletingCustomerFolio}`,
       description: `Se eliminó del padrón el folio físico número #${deletingCustomerFolio} correspondido a: ${targetName}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,

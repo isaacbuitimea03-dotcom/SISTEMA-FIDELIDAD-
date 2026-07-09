@@ -37,7 +37,7 @@ export interface RegisteredCustomer {
 
 export interface ActivityLog {
   id: string;
-  type: 'stamp_added' | 'reward_unlocked' | 'voucher_redeemed' | 'birthday_call';
+  type: 'stamp_added' | 'reward_unlocked' | 'voucher_redeemed' | 'birthday_call' | 'customer_edited' | 'customer_deleted' | 'birthday_whatsapp';
   amount: number;
   title: string;
   description: string;
@@ -45,6 +45,7 @@ export interface ActivityLog {
   clerkName?: string;
   clerkCode?: string;
   customerFolio?: string;
+  stampNumber?: number;
 }
 
 export interface RewardOption {
