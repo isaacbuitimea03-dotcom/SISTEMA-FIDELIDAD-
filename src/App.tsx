@@ -4,13 +4,14 @@ import {
   Coffee, Sparkles, User, Sliders, RefreshCw, HelpCircle, Key, 
   Store, ChevronRight, CheckCircle2, Ticket, UserPlus, FileText, 
   Lock, Unlock, LogOut, LogIn, Calendar, Cake, Search, Mail, 
-  Phone, Trash2, ArrowLeft, RotateCcw, Plus, Check, MessageSquare, Gift, Pencil
+  Phone, Trash2, ArrowLeft, RotateCcw, Plus, Check, MessageSquare, Gift, Pencil,
+  AlertCircle
 } from 'lucide-react';
 
 import { 
   RegisteredCustomer, VisitRecord, ActivityLog, 
   UserSession, MerchantConfig, Survey, SurveyAnswer, Clerk,
-  AppNotification
+  AppNotification, SupportReport
 } from './types';
 import { DEFAULT_MERCHANT_CONFIG } from './utils/rewards';
 import { 
@@ -32,6 +33,7 @@ import {
   dbSaveCustomer, dbDeleteCustomer, dbSaveVisit, dbSaveLog, dbSaveConfig,
   dbSaveSurvey, dbSaveAnswer, dbSaveClerk, dbDeleteClerk,
   dbSaveNotification, dbDeleteNotification,
+  dbSaveSupportReport, dbDeleteSupportReport,
   subscribeToCollection, testConnection, db
 } from './utils/firebase';
 import { getDocs, collection, doc, deleteDoc } from 'firebase/firestore';
@@ -282,7 +284,8 @@ export default function App() {
           cloudConfigSnap,
           cloudSurveysSnap,
           cloudAnswersSnap,
-          cloudClerksSnap
+          cloudClerksSnap,
+          cloudSupportReportsSnap
         ] = await Promise.all([
           getDocs(collection(db, 'customers')),
           getDocs(collection(db, 'visits')),
@@ -290,7 +293,8 @@ export default function App() {
           getDocs(collection(db, 'config')),
           getDocs(collection(db, 'surveys')),
           getDocs(collection(db, 'surveyAnswers')),
-          getDocs(collection(db, 'clerks'))
+          getDocs(collection(db, 'clerks')),
+          getDocs(collection(db, 'support_reports'))
         ]);
 
         const cloudCustomers = cloudCustomersSnap.docs.map(d => d.data() as RegisteredCustomer);
@@ -300,6 +304,7 @@ export default function App() {
         const cloudSurveys = cloudSurveysSnap.docs.map(d => d.data() as Survey);
         const cloudAnswers = cloudAnswersSnap.docs.map(d => d.data() as SurveyAnswer);
         const cloudClerks = cloudClerksSnap.docs.map(d => d.data() as Clerk);
+        const cloudSupportReports = cloudSupportReportsSnap.docs.map(d => d.data() as SupportReport);
 
         // 2. Perform safe multi-device merging
 
@@ -474,6 +479,7 @@ export default function App() {
         setSurveys([...mergedSurveysMap.values()]);
         setSurveyAnswers([...mergedAnswersMap.values()]);
         setCLERKS([...mergedClerksMap.values()]);
+        setSupportReports(cloudSupportReports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
         console.log('Intelligent multi-device state merging with Firebase Firestore completed successfully.');
       } catch (err) {
@@ -541,6 +547,13 @@ export default function App() {
         }
       });
 
+      const unsubSupportReports = subscribeToCollection<SupportReport>('support_reports', (data) => {
+        if (data) {
+          const sorted = [...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setSupportReports(sorted);
+        }
+      });
+
       setIsFirebaseLoaded(true);
 
       return () => {
@@ -552,6 +565,7 @@ export default function App() {
         unsubAnswers();
         unsubClerks();
         unsubNotifications();
+        unsubSupportReports();
       };
     });
   }, []);
@@ -571,96 +585,108 @@ export default function App() {
 
   // Sync wrappers that intercept state changes and push them to Firestore
   const syncSetConsumers = async (updater: React.SetStateAction<RegisteredCustomer[]>) => {
+    const currentConsumers = consumersRef.current;
     let nextVal: RegisteredCustomer[];
     if (typeof updater === 'function') {
-      nextVal = (updater as Function)(consumers);
+      nextVal = (updater as Function)(currentConsumers);
     } else {
       nextVal = updater;
     }
 
-    const oldKeys = new Set(consumers.map(c => c.folio));
-    const newKeys = new Set(nextVal.map(c => c.folio));
+    const oldMap = new Map(currentConsumers.map(c => [c.folio, c]));
+    const newMap = new Map(nextVal.map(c => [c.folio, c]));
 
-    for (const c of consumers) {
-      if (!newKeys.has(c.folio)) {
-        try {
-          await dbDeleteCustomer(c.folio);
-        } catch (e) {
-          console.error(e);
-        }
+    const deletions: Promise<void>[] = [];
+    for (const oldC of currentConsumers) {
+      if (!newMap.has(oldC.folio)) {
+        deletions.push(dbDeleteCustomer(oldC.folio));
       }
     }
 
-    for (const c of nextVal) {
-      try {
-        await dbSaveCustomer(c);
-      } catch (e) {
-        console.error(e);
+    const saves: Promise<void>[] = [];
+    for (const newC of nextVal) {
+      const oldC = oldMap.get(newC.folio);
+      if (!oldC || JSON.stringify(oldC) !== JSON.stringify(newC)) {
+        saves.push(dbSaveCustomer(newC));
       }
+    }
+
+    try {
+      await Promise.all([...deletions, ...saves]);
+    } catch (e) {
+      console.error("Firestore sync error for consumers:", e);
     }
 
     setConsumers(nextVal);
   };
 
   const syncSetVisits = async (updater: React.SetStateAction<VisitRecord[]>) => {
+    const currentVisits = visitsRef.current;
     let nextVal: VisitRecord[];
     if (typeof updater === 'function') {
-      nextVal = (updater as Function)(visits);
+      nextVal = (updater as Function)(currentVisits);
     } else {
       nextVal = updater;
     }
 
-    const oldKeys = new Set(visits.map(v => v.id));
-    const newKeys = new Set(nextVal.map(v => v.id));
+    const oldMap = new Map(currentVisits.map(v => [v.id, v]));
+    const newMap = new Map(nextVal.map(v => [v.id, v]));
 
-    for (const v of visits) {
-      if (!newKeys.has(v.id)) {
-        try {
-          await deleteDoc(doc(db, 'visits', v.id));
-        } catch (e) {
-          console.error(e);
-        }
+    const deletions: Promise<void>[] = [];
+    for (const oldV of currentVisits) {
+      if (!newMap.has(oldV.id)) {
+        deletions.push(deleteDoc(doc(db, 'visits', oldV.id)));
       }
     }
 
-    for (const v of nextVal) {
-      try {
-        await dbSaveVisit(v);
-      } catch (e) {
-        console.error(e);
+    const saves: Promise<void>[] = [];
+    for (const newV of nextVal) {
+      const oldV = oldMap.get(newV.id);
+      if (!oldV || JSON.stringify(oldV) !== JSON.stringify(newV)) {
+        saves.push(dbSaveVisit(newV));
       }
+    }
+
+    try {
+      await Promise.all([...deletions, ...saves]);
+    } catch (e) {
+      console.error("Firestore sync error for visits:", e);
     }
 
     setVisits(nextVal);
   };
 
   const syncSetLogs = async (updater: React.SetStateAction<ActivityLog[]>) => {
+    const currentLogs = logsRef.current;
     let nextVal: ActivityLog[];
     if (typeof updater === 'function') {
-      nextVal = (updater as Function)(logs);
+      nextVal = (updater as Function)(currentLogs);
     } else {
       nextVal = updater;
     }
 
-    const oldKeys = new Set(logs.map(l => l.id));
-    const newKeys = new Set(nextVal.map(l => l.id));
+    const oldMap = new Map(currentLogs.map(l => [l.id, l]));
+    const newMap = new Map(nextVal.map(l => [l.id, l]));
 
-    for (const l of logs) {
-      if (!newKeys.has(l.id)) {
-        try {
-          await deleteDoc(doc(db, 'logs', l.id));
-        } catch (e) {
-          console.error(e);
-        }
+    const deletions: Promise<void>[] = [];
+    for (const oldL of currentLogs) {
+      if (!newMap.has(oldL.id)) {
+        deletions.push(deleteDoc(doc(db, 'logs', oldL.id)));
       }
     }
 
-    for (const l of nextVal) {
-      try {
-        await dbSaveLog(l);
-      } catch (e) {
-        console.error(e);
+    const saves: Promise<void>[] = [];
+    for (const newL of nextVal) {
+      const oldL = oldMap.get(newL.id);
+      if (!oldL || JSON.stringify(oldL) !== JSON.stringify(newL)) {
+        saves.push(dbSaveLog(newL));
       }
+    }
+
+    try {
+      await Promise.all([...deletions, ...saves]);
+    } catch (e) {
+      console.error("Firestore sync error for logs:", e);
     }
 
     setLogs(nextVal);
@@ -724,7 +750,7 @@ export default function App() {
             await deleteDoc(doc(db, 'surveys', s.id));
 
             // Find and delete all answers for this survey
-            const answersToDelete = surveyAnswers.filter(ans => ans.surveyId === s.id);
+            const answersToDelete = surveyAnswersRef.current.filter(ans => ans.surveyId === s.id);
             for (const ans of answersToDelete) {
               console.log(`Hard-deleting answer ${ans.id} from Firestore`);
               await deleteDoc(doc(db, 'surveyAnswers', ans.id));
@@ -740,64 +766,72 @@ export default function App() {
   };
 
   const syncSetCLERKS = async (updater: React.SetStateAction<Clerk[]>) => {
+    const currentClerks = clerksRef.current;
     let nextVal: Clerk[];
     if (typeof updater === 'function') {
-      nextVal = (updater as Function)(CLERKS);
+      nextVal = (updater as Function)(currentClerks);
     } else {
       nextVal = updater;
     }
 
-    const oldKeys = new Set(CLERKS.map(c => c.code));
-    const newKeys = new Set(nextVal.map(c => c.code));
+    const oldMap = new Map(currentClerks.map(c => [c.code, c]));
+    const newMap = new Map(nextVal.map(c => [c.code, c]));
 
-    for (const c of CLERKS) {
-      if (!newKeys.has(c.code)) {
-        try {
-          await dbDeleteClerk(c.code);
-        } catch (e) {
-          console.error(e);
-        }
+    const deletions: Promise<void>[] = [];
+    for (const oldC of currentClerks) {
+      if (!newMap.has(oldC.code)) {
+        deletions.push(dbDeleteClerk(oldC.code));
       }
     }
 
-    for (const c of nextVal) {
-      try {
-        await dbSaveClerk(c);
-      } catch (e) {
-        console.error(e);
+    const saves: Promise<void>[] = [];
+    for (const newC of nextVal) {
+      const oldC = oldMap.get(newC.code);
+      if (!oldC || JSON.stringify(oldC) !== JSON.stringify(newC)) {
+        saves.push(dbSaveClerk(newC));
       }
+    }
+
+    try {
+      await Promise.all([...deletions, ...saves]);
+    } catch (e) {
+      console.error("Firestore sync error for clerks:", e);
     }
 
     setCLERKS(nextVal);
   };
 
   const syncSetSurveyAnswers = async (updater: React.SetStateAction<SurveyAnswer[]>) => {
+    const currentAnswers = surveyAnswersRef.current;
     let nextVal: SurveyAnswer[];
     if (typeof updater === 'function') {
-      nextVal = (updater as Function)(surveyAnswers);
+      nextVal = (updater as Function)(currentAnswers);
     } else {
       nextVal = updater;
     }
 
-    const oldKeys = new Set(surveyAnswers.map(a => a.id));
-    const newKeys = new Set(nextVal.map(a => a.id));
+    const oldMap = new Map(currentAnswers.map(a => [a.id, a]));
+    const newMap = new Map(nextVal.map(a => [a.id, a]));
 
-    for (const a of surveyAnswers) {
-      if (!newKeys.has(a.id)) {
-        try {
-          await deleteDoc(doc(db, 'surveyAnswers', a.id));
-        } catch (e) {
-          console.error(e);
-        }
+    const deletions: Promise<void>[] = [];
+    for (const oldA of currentAnswers) {
+      if (!newMap.has(oldA.id)) {
+        deletions.push(deleteDoc(doc(db, 'surveyAnswers', oldA.id)));
       }
     }
 
-    for (const a of nextVal) {
-      try {
-        await dbSaveAnswer(a);
-      } catch (e) {
-        console.error(e);
+    const saves: Promise<void>[] = [];
+    for (const newA of nextVal) {
+      const oldA = oldMap.get(newA.id);
+      if (!oldA || JSON.stringify(oldA) !== JSON.stringify(newA)) {
+        saves.push(dbSaveAnswer(newA));
       }
+    }
+
+    try {
+      await Promise.all([...deletions, ...saves]);
+    } catch (e) {
+      console.error("Firestore sync error for survey answers:", e);
     }
 
     setSurveyAnswers(nextVal);
@@ -921,6 +955,52 @@ export default function App() {
   // Mobile app notifications push simulation state
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [activeInAppNotification, setActiveInAppNotification] = useState<AppNotification | null>(null);
+
+  // Support help reports state
+  const [supportReports, setSupportReports] = useState<SupportReport[]>([]);
+
+  // Support help modal states
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [supportStep, setSupportStep] = useState<'pin' | 'form'>('pin');
+  const [supportPinInput, setSupportPinInput] = useState('');
+  const [supportPinError, setSupportPinError] = useState('');
+  const [supportReporterName, setSupportReporterName] = useState('');
+  const [supportReporterCode, setSupportReporterCode] = useState('');
+  const [supportDescriptionInput, setSupportDescriptionInput] = useState('');
+
+  // Full-screen loading progress bar states
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [actionProgress, setActionProgress] = useState(0);
+  const [processingActionMessage, setProcessingActionMessage] = useState('Procesando Acción...');
+
+  const runActionWithProgress = async (message: string, actionFn: () => Promise<void> | void) => {
+    setIsProcessingAction(true);
+    setProcessingActionMessage(message);
+    setActionProgress(0);
+    
+    let progressVal = 0;
+    const interval = setInterval(() => {
+      progressVal += Math.random() * 15 + 10;
+      if (progressVal >= 90) {
+        progressVal = 90;
+        clearInterval(interval);
+      }
+      setActionProgress(Math.floor(progressVal));
+    }, 100);
+
+    try {
+      await actionFn();
+      clearInterval(interval);
+      setActionProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (err) {
+      clearInterval(interval);
+      console.error(err);
+    } finally {
+      setIsProcessingAction(false);
+      setActionProgress(0);
+    }
+  };
 
   const [appMountTime] = useState<number>(() => Date.now());
   const notifiedIdsRef = useRef<Set<string>>(new Set());
@@ -1069,6 +1149,19 @@ export default function App() {
     localStorage.setItem('bistro_clerks_list', JSON.stringify(CLERKS));
   }, [CLERKS]);
 
+  // Synchronous references to keep track of latest state values in async operations
+  const consumersRef = useRef<RegisteredCustomer[]>([]);
+  const visitsRef = useRef<VisitRecord[]>([]);
+  const logsRef = useRef<ActivityLog[]>([]);
+  const clerksRef = useRef<Clerk[]>([]);
+  const surveyAnswersRef = useRef<SurveyAnswer[]>([]);
+
+  useEffect(() => { consumersRef.current = consumers; }, [consumers]);
+  useEffect(() => { visitsRef.current = visits; }, [visits]);
+  useEffect(() => { logsRef.current = logs; }, [logs]);
+  useEffect(() => { clerksRef.current = CLERKS; }, [CLERKS]);
+  useEffect(() => { surveyAnswersRef.current = surveyAnswers; }, [surveyAnswers]);
+
   // Helper date formatter
   const [currentTimeFormatted, setCurrentTimeFormatted] = useState('');
   useEffect(() => {
@@ -1157,12 +1250,17 @@ export default function App() {
     return list;
   };
 
-  // Reset next registration folio default
+  // Reset next registration folio default when consumers list changes
   useEffect(() => {
     const avs = getAvailableFolios();
     if (avs.length > 0) {
-      setRegFolio(avs[0]);
+      if (!regFolio || !avs.includes(regFolio)) {
+        setRegFolio(avs[0]);
+      }
+    } else {
+      setRegFolio('');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consumers]);
 
   // LOGIN OPERATIONS
@@ -1350,58 +1448,60 @@ export default function App() {
     const targetSurvey = surveys.find(s => s.id === surveyId);
     if (!targetSurvey) return;
 
-    // 1. Create survey answer response
-    const newAnswer: SurveyAnswer = {
-      id: 'ans_' + Date.now(),
-      surveyId,
-      surveyTitle: targetSurvey.title,
-      customerFolio: clientPortalSession.folio || '',
-      customerName: clientPortalSession.name,
-      timestamp: new Date().toISOString(),
-      answers
-    };
-
-    // 2. Append to survey answers
-    syncSetSurveyAnswers(prev => [newAnswer, ...prev]);
-
-    // 3. Mark as answered to bypass check for next render
-    localStorage.setItem(`answered_survey_${clientPortalSession.folio}_${surveyId}`, 'true');
-
-    // 4. Increment submissionCount
-    syncSetSurveys(prev => prev.map(s => s.id === surveyId ? { ...s, submissionsCount: s.submissionsCount + 1 } : s));
-
-    // 5. Gift Voucher Reward if applicable
-    if (targetSurvey.reward && targetSurvey.reward !== 'Sin recompensa') {
-      const rewardId = 'survey_' + Date.now();
-      const newVoucher = {
-        id: 'vouch_srv_' + Date.now(),
-        rewardId,
-        title: `Premio Encuesta: ${targetSurvey.reward}`,
-        code: 'ENCUESTA-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-        isRedeemed: false,
-        unlockedAt: new Date().toISOString()
+    runActionWithProgress('Enviando respuestas y procesando recompensa...', async () => {
+      // 1. Create survey answer response
+      const newAnswer: SurveyAnswer = {
+        id: 'ans_' + Date.now(),
+        surveyId,
+        surveyTitle: targetSurvey.title,
+        customerFolio: clientPortalSession.folio || '',
+        customerName: clientPortalSession.name,
+        timestamp: new Date().toISOString(),
+        answers
       };
 
-      syncSetConsumers(prev => prev.map(c => {
-        if (c.folio === clientPortalSession.folio) {
-          const updatedVouchers = [...(c.unlockedVouchers || []), newVoucher];
-          // Sync session
-          setClientPortalSession(prevSes => prevSes ? { ...prevSes, unlockedVouchers: updatedVouchers } : null);
-          return {
-            ...c,
-            unlockedVouchers: updatedVouchers
-          };
-        }
-        return c;
-      }));
-    }
+      // 2. Append to survey answers
+      await syncSetSurveyAnswers(prev => [newAnswer, ...prev]);
 
-    // Reset current survey selection to return to the survey list
-    setSelectedClientSurveyId(null);
+      // 3. Mark as answered to bypass check for next render
+      localStorage.setItem(`answered_survey_${clientPortalSession.folio}_${surveyId}`, 'true');
+
+      // 4. Increment submissionCount
+      await syncSetSurveys(prev => prev.map(s => s.id === surveyId ? { ...s, submissionsCount: s.submissionsCount + 1 } : s));
+
+      // 5. Gift Voucher Reward if applicable
+      if (targetSurvey.reward && targetSurvey.reward !== 'Sin recompensa') {
+        const rewardId = 'survey_' + Date.now();
+        const newVoucher = {
+          id: 'vouch_srv_' + Date.now(),
+          rewardId,
+          title: `Premio Encuesta: ${targetSurvey.reward}`,
+          code: 'ENCUESTA-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+          isRedeemed: false,
+          unlockedAt: new Date().toISOString()
+        };
+
+        await syncSetConsumers(prev => prev.map(c => {
+          if (c.folio === clientPortalSession.folio) {
+            const updatedVouchers = [...(c.unlockedVouchers || []), newVoucher];
+            // Sync session
+            setClientPortalSession(prevSes => prevSes ? { ...prevSes, unlockedVouchers: updatedVouchers } : null);
+            return {
+              ...c,
+              unlockedVouchers: updatedVouchers
+            };
+          }
+          return c;
+        }));
+      }
+
+      // Reset current survey selection to return to the survey list
+      setSelectedClientSurveyId(null);
+    });
   };
 
   // ADD STAMP ACTION (Clerk Required)
-  const commitStampAddition = (clerkCode: string, clerkName: string) => {
+  const commitStampAddition = async (clerkCode: string, clerkName: string) => {
     if (!stampingCustomerFolio) return;
     
     // Find client first in current state
@@ -1454,8 +1554,8 @@ export default function App() {
       stampNumber: updatedStamps
     };
 
-    syncSetVisits(prevV => [record, ...prevV]);
-    syncSetLogs(prevL => [logRecord, ...prevL]);
+    await syncSetVisits(prevV => [record, ...prevV]);
+    await syncSetLogs(prevL => [logRecord, ...prevL]);
 
     if (alertTrigger) {
       setCongratsRewardTitle(config.mainRewardTitle);
@@ -1464,7 +1564,7 @@ export default function App() {
     setSystemBannerAlert(`¡Visita registrada con éxito por ${clerkName}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
 
-    syncSetConsumers(prev => {
+    await syncSetConsumers(prev => {
       return prev.map(c => {
         if (c.folio === stampingCustomerFolio) {
           return {
@@ -1488,7 +1588,9 @@ export default function App() {
                          (stampPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
 
     if (matchedClerk) {
-      commitStampAddition(matchedClerk.code, matchedClerk.name);
+      runActionWithProgress('Registrando Visita y Acreditando Sello...', async () => {
+        await commitStampAddition(matchedClerk.code, matchedClerk.name);
+      });
       setStampSelectedClerk(null);
       setStampPinInput('');
       setStampPinError('');
@@ -1498,7 +1600,7 @@ export default function App() {
   };
 
   // BIRTHDAY CALL CONFIRMATION ACTION
-  const handleConfirmBirthdayCall = async (customerFolio: string, clerkCode: string, clerkName: string) => {
+  const handleConfirmBirthdayCall = async (customerFolio: string, clerkCode: string, clerkName: string, callStatus?: 'contesto' | 'no_contesto', notes?: string) => {
     let targetCustomerName = '';
     const isMockSimulation = customerFolio.startsWith('SIMULATION-');
 
@@ -1511,34 +1613,38 @@ export default function App() {
     }
 
     const currentYear = new Date().getFullYear();
+    const statusLabel = callStatus === 'no_contesto' ? 'No contestó' : 'Sí contestó';
+    const notesStr = notes ? ` Notas: "${notes}"` : '';
 
     const logRecord: ActivityLog = {
       id: 'log_bday_' + customerFolio + '_' + currentYear + '_' + Date.now(),
       type: 'birthday_call',
       amount: 1,
       title: isMockSimulation ? `Llamada Cumpleañera de Prueba` : `Llamada Cumpleañera #${customerFolio}`,
-      description: `Llamada de felicitación de cumpleaños registrada para ${targetCustomerName}.`,
+      description: `Llamada de felicitación para ${targetCustomerName}. Estado: ${statusLabel}.${notesStr}`,
       timestamp: new Date().toISOString(),
       clerkName,
       clerkCode,
       customerFolio
     };
 
-    await syncSetLogs([logRecord, ...logs]);
+    await runActionWithProgress('Registrando Felicitación Telefónica...', async () => {
+      await syncSetLogs([logRecord, ...logs]);
 
-    if (!isMockSimulation) {
-      await syncSetConsumers(prev => prev.map(c => {
-        if (c.folio === customerFolio) {
-          return {
-            ...c,
-            lastBirthdayCallYear: currentYear
-          };
-        }
-        return c;
-      }));
-    }
+      if (!isMockSimulation) {
+        await syncSetConsumers(prev => prev.map(c => {
+          if (c.folio === customerFolio) {
+            return {
+              ...c,
+              lastBirthdayCallYear: currentYear
+            };
+          }
+          return c;
+        }));
+      }
+    });
 
-    setSystemBannerAlert(`¡Llamada de cumpleaños registrada por ${clerkName}!`);
+    setSystemBannerAlert(`¡Llamada de cumpleaños registrada por ${clerkName}! (${statusLabel})`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
   };
 
@@ -1569,14 +1675,16 @@ export default function App() {
       customerFolio
     };
 
-    await syncSetLogs([logRecord, ...logs]);
+    await runActionWithProgress('Registrando Felicitación de WhatsApp...', async () => {
+      await syncSetLogs([logRecord, ...logs]);
+    });
 
     setSystemBannerAlert(`¡Envío de WhatsApp registrado por ${clerkName}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
   };
 
   // DECREASE / OVERRIDE STAMP ACTION WITH CLERK AUTH
-  const handleDecreaseStampsWithAuth = (customerFolio: string, clerkCode: string, clerkName: string) => {
+  const handleDecreaseStampsWithAuth = async (customerFolio: string, clerkCode: string, clerkName: string) => {
     const targetCustomer = consumers.find(c => c.folio === customerFolio);
     if (!targetCustomer || targetCustomer.currentStamps <= 0) return;
 
@@ -1592,21 +1700,23 @@ export default function App() {
       customerFolio: targetCustomer.folio
     };
 
-    syncSetLogs(prevL => [logRecord, ...prevL]);
+    await runActionWithProgress('Descontando Sello de la Cuenta...', async () => {
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
+
+      await syncSetConsumers(prev => prev.map(c => {
+        if (c.folio === customerFolio) {
+          return {
+            ...c,
+            currentStamps: c.currentStamps - 1,
+            points: Math.max(0, c.points - 100)
+          };
+        }
+        return c;
+      }));
+    });
 
     setSystemBannerAlert(`Se descontó una taza de la cuenta de ${targetCustomer.name}`);
     setTimeout(() => setSystemBannerAlert(null), 3500);
-
-    syncSetConsumers(prev => prev.map(c => {
-      if (c.folio === customerFolio) {
-        return {
-          ...c,
-          currentStamps: c.currentStamps - 1,
-          points: Math.max(0, c.points - 100)
-        };
-      }
-      return c;
-    }));
   };
 
   // INITIALIZE PROCESSES FOR EDIT & CONTROL ACTIONS
@@ -1630,7 +1740,7 @@ export default function App() {
     setRevertPinError('');
   };
 
-  const handleConfirmRevertStamp = (e: React.FormEvent) => {
+  const handleConfirmRevertStamp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!revertingCustomerFolio) return;
 
@@ -1646,7 +1756,7 @@ export default function App() {
     }
 
     // Call actual decrease action
-    handleDecreaseStampsWithAuth(revertingCustomerFolio, matchedClerk.code, matchedClerk.name);
+    await handleDecreaseStampsWithAuth(revertingCustomerFolio, matchedClerk.code, matchedClerk.name);
 
     // Reset
     setRevertingCustomerFolio(null);
@@ -1676,6 +1786,18 @@ export default function App() {
       return;
     }
 
+    let formattedFolio = editFolio.trim();
+    if (/^\d+$/.test(formattedFolio)) {
+      formattedFolio = formattedFolio.padStart(3, '0');
+    }
+
+    // Verify duplication
+    const folioExists = consumers.some(c => c.folio === formattedFolio && c.folio !== editingCustomer.folio);
+    if (folioExists) {
+      setEditError(`El folio físico número #${formattedFolio} ya se encuentra asignado a otro cliente.`);
+      return;
+    }
+
     const normalizedInput = editPinInput.trim().toLowerCase();
     const matchedClerk = CLERKS.find(c => 
       c.pin.toLowerCase() === normalizedInput || 
@@ -1692,36 +1814,38 @@ export default function App() {
       id: 'log_' + Date.now(),
       type: 'customer_edited',
       amount: stampDiff,
-      title: `Edición de Cliente #${editFolio}`,
-      description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${editFolio}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
+      title: `Edición de Cliente #${formattedFolio}`,
+      description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${formattedFolio}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
       timestamp: new Date().toISOString(),
       clerkName: matchedClerk.name,
       clerkCode: matchedClerk.code,
-      customerFolio: editFolio
+      customerFolio: formattedFolio
     };
 
-    syncSetLogs(prevL => [logRecord, ...prevL]);
+    runActionWithProgress('Guardando Cambios del Cliente...', async () => {
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
 
-    // Update state (replaces any other customer with that folio to avoid duplication)
-    syncSetConsumers(prev => {
-      const filtered = prev.filter(c => c.folio !== editFolio || c.folio === editingCustomer.folio);
-      return filtered.map(c => {
-        if (c.folio === editingCustomer.folio) {
-          return {
-            ...c,
-            folio: editFolio,
-            name: editName,
-            phone: editPhone,
-            email: editEmail,
-            birthday: editBirthday,
-            currentStamps: editCurrentStamps
-          };
-        }
-        return c;
+      // Update state (replaces any other customer with that folio to avoid duplication)
+      await syncSetConsumers(prev => {
+        const filtered = prev.filter(c => c.folio !== formattedFolio || c.folio === editingCustomer.folio);
+        return filtered.map(c => {
+          if (c.folio === editingCustomer.folio) {
+            return {
+              ...c,
+              folio: formattedFolio,
+              name: editName,
+              phone: editPhone,
+              email: editEmail,
+              birthday: editBirthday,
+              currentStamps: editCurrentStamps
+            };
+          }
+          return c;
+        });
       });
     });
 
-    setSystemBannerAlert(`¡Tarjeta #${editFolio} editada con éxito por ${matchedClerk.name}!`);
+    setSystemBannerAlert(`¡Tarjeta #${formattedFolio} editada con éxito por ${matchedClerk.name}!`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
 
     // Reset editing state parameters
@@ -1781,8 +1905,6 @@ export default function App() {
       visitsHistory: []
     };
 
-    syncSetConsumers(prev => [newCustomerObj, ...prev]);
-
     // Create registry activity log with approved clerk details
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
@@ -1796,7 +1918,11 @@ export default function App() {
       customerFolio: regFolio,
       stampNumber: 1
     };
-    syncSetLogs(prevL => [logRecord, ...prevL]);
+
+    runActionWithProgress('Registrando Nuevo Cliente...', async () => {
+      await syncSetConsumers(prev => [newCustomerObj, ...prev]);
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
+    });
 
     // Reset Form
     setRegName('');
@@ -1831,8 +1957,6 @@ export default function App() {
     const targetCustomer = consumers.find(c => c.folio === deletingCustomerFolio);
     const targetName = targetCustomer ? targetCustomer.name : 'Socio';
 
-    syncSetConsumers(prev => prev.filter(c => c.folio !== deletingCustomerFolio));
-    
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
       type: 'customer_deleted',
@@ -1844,7 +1968,11 @@ export default function App() {
       clerkCode: matchedClerk.code,
       customerFolio: deletingCustomerFolio
     };
-    syncSetLogs(prevL => [logRecord, ...prevL]);
+
+    runActionWithProgress('Eliminando Tarjeta y Registro de Cliente...', async () => {
+      await syncSetConsumers(prev => prev.filter(c => c.folio !== deletingCustomerFolio));
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
+    });
 
     setSystemBannerAlert(`La tarjeta #${deletingCustomerFolio} ha sido eliminada permanentemente.`);
     setTimeout(() => setSystemBannerAlert(null), 3000);
@@ -3087,6 +3215,33 @@ export default function App() {
           {/* RIGHT CENTRAL WORKSPACE LAYOUT PANELS */}
           <main className="flex-1 p-5 md:p-8 flex flex-col justify-start max-w-5xl mx-auto w-full gap-6">
             
+            {/* Global Top Navigation Bar with Support Help Button */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[11px] font-mono font-bold tracking-wider text-slate-500 uppercase">
+                  Consola de Control Mi Cafecito • Línea Segura Activa
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupportStep('pin');
+                    setSupportPinInput('');
+                    setSupportPinError('');
+                    setSupportReporterName('');
+                    setSupportDescriptionInput('');
+                    setShowSupportModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300 text-red-700 font-sans font-extrabold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <AlertCircle size={13} className="text-red-500 animate-pulse" />
+                  <span>⚠️ Reportar Falla del Sistema</span>
+                </button>
+              </div>
+            </div>
+            
             {/* 1. PORTAL VIEW TABS: DASHBOARD SCREEN (Screen 4 and 5) */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 text-left">
@@ -3585,6 +3740,9 @@ export default function App() {
                       setIsClientMode(true);
                       window.location.hash = 'portal_encuestas';
                     }}
+                    supportReports={supportReports}
+                    onSaveSupportReport={dbSaveSupportReport}
+                    onDeleteSupportReport={dbDeleteSupportReport}
                   />
                 )}
               </div>
@@ -3595,6 +3753,292 @@ export default function App() {
       )}
         </>
       )}
+
+      {/* ⏳ PROCESO DE ACCIÓN EN PANTALLA COMPLETA (Barra de progreso con Logo) */}
+      <AnimatePresence>
+        {isProcessingAction && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#13252d]/95 backdrop-blur-md text-white font-sans select-none"
+            id="global-action-loader-overlay"
+          >
+            {/* Huge watermarked logo in background */}
+            <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none overflow-hidden" id="loader-bg-logo-watermark">
+              <MiCafecitoLogo size={650} className="scale-125" />
+            </div>
+
+            <div className="relative z-10 flex flex-col items-center max-w-sm px-6 text-center" id="loader-content-container">
+              {/* Spinning / Pulsing Logo Frame */}
+              <motion.div
+                animate={{ 
+                  scale: [1, 1.03, 1],
+                  rotate: [0, 1, -1, 0] 
+                }}
+                transition={{ 
+                  repeat: Infinity, 
+                  duration: 3, 
+                  ease: "easeInOut" 
+                }}
+                className="mb-8 filter drop-shadow-[0_10px_15px_rgba(0,0,0,0.3)]"
+                id="loader-pulsing-logo"
+              >
+                <MiCafecitoLogo size={140} className="rounded-full shadow-2xl" />
+              </motion.div>
+
+              {/* Progress message */}
+              <h3 className="text-lg font-bold tracking-tight text-slate-100 font-sans" id="loader-status-title">
+                {processingActionMessage}
+              </h3>
+              
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed" id="loader-status-subtext">
+                Por favor, espera un momento mientras se registra y sincroniza de forma segura en la base de datos...
+              </p>
+
+              {/* Outer Progress Bar Container */}
+              <div className="w-64 h-3 bg-white/10 rounded-full overflow-hidden border border-white/5 mt-8 shadow-inner relative" id="loader-progress-bar-container">
+                {/* Active fill */}
+                <div
+                  className="bg-[#149b8f] h-full rounded-full transition-all duration-300 ease-out shadow-[0_0_12px_rgba(20,155,143,0.8)]"
+                  style={{ width: `${actionProgress}%` }}
+                  id="loader-progress-bar-fill"
+                />
+              </div>
+
+              {/* Percentage & Status indicator */}
+              <div className="flex justify-between w-64 mt-2 font-mono text-[10px] text-slate-400 font-bold tracking-widest uppercase" id="loader-progress-bar-metrics">
+                <span>Sincronizando</span>
+                <span className="text-[#149b8f]">{actionProgress}%</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🛠️ Support / Help Floating Bubble Button */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <button
+          type="button"
+          onClick={() => {
+            setSupportStep('pin');
+            setSupportPinInput('');
+            setSupportPinError('');
+            setSupportReporterName('');
+            setSupportReporterCode('');
+            setSupportDescriptionInput('');
+            setShowSupportModal(true);
+          }}
+          className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl flex items-center justify-center cursor-pointer transition-all hover:scale-110 active:scale-95 group relative border-2 border-white focus:outline-none"
+          title="Soporte y Ayuda - Reportar Falla"
+        >
+          {/* Pulse Ripple Rings */}
+          <span className="absolute inset-0 rounded-full bg-red-600 animate-ping opacity-30 group-hover:hidden" />
+          <AlertCircle size={24} className="stroke-[2.5]" />
+          
+          {/* Tooltip Label */}
+          <span className="absolute right-16 bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none shadow-md border border-slate-850">
+            🛠️ Reportar Falla (PIN de Encargado)
+          </span>
+        </button>
+      </div>
+
+      {/* 🛠️ Support Help Dialog Modal */}
+      <AnimatePresence>
+        {showSupportModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.15 }}
+              className="bg-white rounded-3xl border border-slate-200 max-w-md w-full shadow-2xl overflow-hidden text-left flex flex-col font-sans"
+            >
+              {/* Header */}
+              <div className="bg-red-600 text-white p-5 flex justify-between items-center">
+                <div>
+                  <span className="text-red-200 font-mono text-[9px] uppercase tracking-widest font-extrabold block">SISTEMA DE SOPORTE</span>
+                  <h3 className="text-lg font-serif font-black flex items-center gap-2">
+                    <AlertCircle size={18} className="text-white shrink-0 animate-pulse" />
+                    Reportar Falla Técnica
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowSupportModal(false)}
+                  className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white cursor-pointer font-bold transition text-sm focus:outline-none"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Step 1: PIN CODE ENTRY */}
+              {supportStep === 'pin' && (
+                <div className="p-6 space-y-4">
+                  <div className="space-y-1.5 text-center">
+                    <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto border border-red-100 shadow-sm">
+                      <Lock size={20} />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800">Clave del Encargado Requerida</h4>
+                    <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                      Por motivos de seguridad, para reportar una falla debes ingresar tu código PIN personal de encargado (el mismo usado para registrar visitas).
+                    </p>
+                  </div>
+
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const matchedClerk = CLERKS.find(c => c.pin === supportPinInput) || 
+                                           (supportPinInput === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General', pin: 'BISTRO2026' } : null);
+                      if (matchedClerk) {
+                        setSupportReporterName(matchedClerk.name);
+                        setSupportReporterCode(matchedClerk.code);
+                        setSupportStep('form');
+                        setSupportPinError('');
+                      } else {
+                        setSupportPinError('Código PIN incorrecto. Por favor ingrese su PIN de encargado válido.');
+                      }
+                    }}
+                    className="space-y-4"
+                  >
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Tu PIN de Encargado</label>
+                      <input
+                        type="password"
+                        placeholder="••••"
+                        maxLength={6}
+                        value={supportPinInput}
+                        onChange={(e) => setSupportPinInput(e.target.value)}
+                        className="w-full bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/20 transition-all shadow-inner"
+                        autoFocus
+                      />
+                      {supportPinError && (
+                        <p className="text-[10px] text-red-500 font-bold mt-1 text-center animate-shake">
+                          ❌ {supportPinError}
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md shadow-red-700/10 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer uppercase tracking-wider"
+                    >
+                      <Unlock size={13} />
+                      Acceder al Formulario
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Step 2: COMPOSING THE FAULT REPORT */}
+              {supportStep === 'form' && (
+                <div className="p-6 space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-xl flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center font-black text-[10px]">✓</span>
+                    <span className="text-xs font-medium text-emerald-800">
+                      Identidad Confirmada: <strong>{supportReporterName}</strong> ({supportReporterCode})
+                    </span>
+                  </div>
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!supportDescriptionInput.trim()) {
+                        alert('Por favor redacte una breve descripción de la falla técnica.');
+                        return;
+                      }
+
+                      // Create and Save the SupportReport object
+                      const newReport: SupportReport = {
+                        id: `rep_${Date.now()}`,
+                        timestamp: new Date().toISOString(),
+                        clerkName: supportReporterName.trim(),
+                        clerkCode: supportReporterCode,
+                        description: supportDescriptionInput.trim(),
+                        status: 'pending'
+                      };
+
+                      await runActionWithProgress('Registrando Reporte de Falla...', async () => {
+                        try {
+                          await dbSaveSupportReport(newReport);
+                          
+                          // Also register an activity log for audit
+                          const logRecord: ActivityLog = {
+                            id: `log_rep_${Date.now()}`,
+                            type: 'voucher_redeemed' as any,
+                            amount: 0,
+                            title: 'Falla Técnica Reportada',
+                            description: `El encargado ${newReport.clerkName} (${newReport.clerkCode}) reportó una falla técnica: "${newReport.description.substring(0, 45)}..."`,
+                            timestamp: newReport.timestamp,
+                            clerkName: newReport.clerkName,
+                            clerkCode: newReport.clerkCode
+                          };
+                          await dbSaveLog(logRecord);
+
+                          // Reset states
+                          setSupportDescriptionInput('');
+                          setSupportReporterName('');
+                          setSupportReporterCode('');
+                          setShowSupportModal(false);
+                          alert('¡Gracias! El reporte de falla ha sido registrado y sincronizado en tiempo real. Será revisado desde el panel de reportes con la clave de acceso 2303.');
+                        } catch (err) {
+                          console.error('Error saving support report:', err);
+                          alert('Error al registrar el reporte en la base de datos.');
+                        }
+                      });
+                    }}
+                    className="space-y-4 text-left"
+                  >
+                    {/* Reporter Name field (read-only for security, or editable if they need to specify more details) */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Nombre del Encargado</label>
+                      <input
+                        type="text"
+                        required
+                        readOnly
+                        value={supportReporterName}
+                        className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 text-xs outline-none font-bold text-slate-500 cursor-not-allowed"
+                      />
+                    </div>
+
+                    {/* Brief description field */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Descripción de la falla (Texto libre)</label>
+                      <textarea
+                        placeholder="Describe detalladamente pero breve la falla del sistema (ej: 'El lector QR no responde', 'La impresora no emite tickets de canje', etc.)"
+                        required
+                        rows={4}
+                        value={supportDescriptionInput}
+                        onChange={(e) => setSupportDescriptionInput(e.target.value)}
+                        className="w-full bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-red-500 transition-all font-sans leading-relaxed text-slate-700 resize-none"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="pt-2 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSupportStep('pin');
+                        }}
+                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl active:scale-95 transition-all cursor-pointer"
+                      >
+                        Atrás
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md shadow-red-700/10 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer uppercase tracking-wider"
+                      >
+                        <AlertCircle size={13} />
+                        Enviar Falla Al Sistema ⚠️
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

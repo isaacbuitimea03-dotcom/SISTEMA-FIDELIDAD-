@@ -20,7 +20,8 @@ import {
   Survey, 
   SurveyAnswer, 
   Clerk,
-  AppNotification
+  AppNotification,
+  SupportReport
 } from '../types';
 
 const app = initializeApp(firebaseConfig);
@@ -257,4 +258,24 @@ export function subscribeToDoc<Type>(
       handleFirestoreError(error, OperationType.GET, `${collectionName}/${docId}`);
     }
   );
+}
+
+// SUPPORT REPORTS OPERATIONS
+export async function dbSaveSupportReport(report: SupportReport) {
+  const path = `support_reports/${report.id}`;
+  try {
+    const cleanDoc = JSON.parse(JSON.stringify(report));
+    await setDoc(doc(db, 'support_reports', report.id), cleanDoc);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function dbDeleteSupportReport(id: string) {
+  const path = `support_reports/${id}`;
+  try {
+    await deleteDoc(doc(db, 'support_reports', id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
 }

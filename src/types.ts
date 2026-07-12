@@ -128,4 +128,14 @@ export interface AppNotification {
   clerkCode: string;
 }
 
+export interface SupportReport {
+  id: string;
+  timestamp: string;
+  clerkName: string;
+  clerkCode: string;
+  description: string;
+  status: 'pending' | 'resolved';
+}
+
+
 

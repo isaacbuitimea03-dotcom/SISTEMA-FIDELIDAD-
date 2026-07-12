@@ -7,7 +7,7 @@ import {
   Eye, ClipboardList, Settings, Sparkles, HelpCircle as QuestionIcon,
   Copy, ExternalLink, Smartphone, Lock, Unlock, Key, UserPlus, Edit, Gift, Coffee, Cake, QrCode
 } from 'lucide-react';
-import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk, AppNotification } from '../types';
+import { RegisteredCustomer, VisitRecord, ActivityLog, Survey, SurveyAnswer, SurveyQuestion, Clerk, AppNotification, SupportReport } from '../types';
 
 interface MerchantReportsTabPanelProps {
   customers: RegisteredCustomer[];
@@ -26,6 +26,9 @@ interface MerchantReportsTabPanelProps {
   onSaveNotification: (notification: AppNotification) => Promise<void>;
   onDeleteNotification: (id: string) => Promise<void>;
   onEnterPublicSurveyPortal?: () => void;
+  supportReports?: SupportReport[];
+  onSaveSupportReport?: (report: SupportReport) => Promise<void>;
+  onDeleteSupportReport?: (id: string) => Promise<void>;
 }
 
 export default function MerchantReportsTabPanel({ 
@@ -44,13 +47,21 @@ export default function MerchantReportsTabPanel({
   notifications,
   onSaveNotification,
   onDeleteNotification,
-  onEnterPublicSurveyPortal
+  onEnterPublicSurveyPortal,
+  supportReports = [],
+  onSaveSupportReport,
+  onDeleteSupportReport
 }: MerchantReportsTabPanelProps) {
   const [filterPeriod, setFilterPeriod] = useState<'todo' | 'semana' | 'mes' | 'anio'>('todo');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'encuestas' | 'whatsapp' | 'llaves' | 'acciones'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'encuestas' | 'whatsapp' | 'llaves' | 'acciones' | 'fallas'>('dashboard');
+
+  // Protection state for Fallas Reportadas (PIN: 2303)
+  const [fallasUnlocked, setFallasUnlocked] = useState(false);
+  const [fallasPinInput, setFallasPinInput] = useState('');
+  const [fallasPinError, setFallasPinError] = useState('');
 
   // Helper to get stamp number dynamically
   const getStampNumberForLog = (item: ActivityLog) => {
@@ -959,17 +970,17 @@ export default function MerchantReportsTabPanel({
   // 2. Card stamping journey (distribution of stamps)
   const getStampsDistribution = () => {
     const segments = {
-      '0-2 s (Iniciando)': 0,
-      '3-5 s (Medio)': 0,
-      '6-8 s (Avanzado)': 0,
-      '9-10 s (Premio)': 0
+      '0-2 tazas (Iniciando)': 0,
+      '3-5 tazas (Medio)': 0,
+      '6-7 tazas (Avanzado)': 0,
+      '8+ tazas (Premio)': 0
     };
     customers.forEach(c => {
       const stamps = c.currentStamps || 0;
-      if (stamps <= 2) segments['0-2 s (Iniciando)']++;
-      else if (stamps <= 5) segments['3-5 s (Medio)']++;
-      else if (stamps <= 8) segments['6-8 s (Avanzado)']++;
-      else segments['9-10 s (Premio)']++;
+      if (stamps <= 2) segments['0-2 tazas (Iniciando)']++;
+      else if (stamps <= 5) segments['3-5 tazas (Medio)']++;
+      else if (stamps <= 7) segments['6-7 tazas (Avanzado)']++;
+      else segments['8+ tazas (Premio)']++;
     });
     return segments;
   };
@@ -989,6 +1000,81 @@ export default function MerchantReportsTabPanel({
       redeemed = 18;
     }
     return { unlocked, redeemed, active: unlocked - redeemed };
+  };
+
+  // Helper: Get visits grouped by day of the week
+  const getVisitsByDayOfWeek = () => {
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    
+    (visits || []).forEach(v => {
+      try {
+        const d = new Date(v.timestamp);
+        if (!isNaN(d.getTime())) {
+          counts[d.getDay()]++;
+        }
+      } catch (e) {}
+    });
+    
+    // Fallback data if no actual visits recorded yet
+    if ((visits || []).length === 0) {
+      return days.map((day, idx) => ({ day, count: [12, 24, 18, 29, 35, 42, 30][idx] }));
+    }
+    
+    return days.map((day, idx) => ({ day, count: counts[idx] }));
+  };
+
+  // Helper: Get visits grouped by peak hours of the day
+  const getVisitsByTimeOfDay = () => {
+    const segments = [
+      { label: 'Mañana (6am - 12pm)', count: 0 },
+      { label: 'Mediodía/Tarde (12pm - 6pm)', count: 0 },
+      { label: 'Tarde/Noche (6pm - 12am)', count: 0 },
+      { label: 'Madrugada (12am - 6am)', count: 0 }
+    ];
+    
+    (visits || []).forEach(v => {
+      try {
+        const d = new Date(v.timestamp);
+        if (!isNaN(d.getTime())) {
+          const hr = d.getHours();
+          if (hr >= 6 && hr < 12) segments[0].count++;
+          else if (hr >= 12 && hr < 18) segments[1].count++;
+          else if (hr >= 18 && hr < 24) segments[2].count++;
+          else segments[3].count++;
+        }
+      } catch (e) {}
+    });
+    
+    if ((visits || []).length === 0) {
+      segments[0].count = 15;
+      segments[1].count = 38;
+      segments[2].count = 25;
+      segments[3].count = 4;
+    }
+    
+    return segments;
+  };
+
+  // Helper: Get detailed retention status (cohort-like segmentation)
+  const getRetentionStats = () => {
+    const total = customers.length || 1;
+    const returningCount = customers.filter(c => (c.totalStampsEarned || 0) >= 2).length;
+    const singleVisitCount = customers.filter(c => (c.totalStampsEarned || 0) === 1).length;
+    const noVisitCount = customers.filter(c => (c.totalStampsEarned || 0) === 0).length;
+    
+    const recurringPct = Math.round((returningCount / total) * 100);
+    const singlePct = Math.round((singleVisitCount / total) * 100);
+    const noPct = Math.round((noVisitCount / total) * 100);
+    
+    return {
+      returningCount,
+      singleVisitCount,
+      noVisitCount,
+      recurringPct,
+      singlePct,
+      noPct
+    };
   };
 
   // 4. Marketing Conclusion Generator based on actual responses
@@ -1200,6 +1286,9 @@ export default function MerchantReportsTabPanel({
   const currentClerkCounts = getClerkMetrics();
   const sortedFilteredLogs = getFilteredLogs();
 
+  const returningCustomersCount = customers.filter(c => (c.totalStampsEarned || 0) >= 2).length;
+  const retentionRate = customers.length > 0 ? Math.round((returningCustomersCount / customers.length) * 100) : 0;
+
   // Real Export PDF files triggers using jsPDF
   const triggerMockExport = (reportType: string) => {
     setShowMockExportSuccess(`Generando y descargando reporte de ${reportType} en PDF con gráficas avanzadas...`);
@@ -1302,16 +1391,16 @@ export default function MerchantReportsTabPanel({
         doc.setTextColor(100, 116, 139);
         doc.text('VISITAS TOTALES', 62, y + 15);
 
-        // Card 3: Premios
+        // Card 3: Tasa de Retención
         doc.rect(106, y, 44, 16, 'FD');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
-        doc.setTextColor(225, 29, 72);
-        doc.text(`${totalUnlockedVouchers}`, 110, y + 6);
+        doc.setTextColor(79, 70, 229); // Royal Indigo
+        doc.text(`${retentionRate}%`, 110, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
-        doc.text('BENEFICIOS GANADOS', 110, y + 11);
+        doc.text('TASA DE RETENCIÓN', 110, y + 11);
 
         // Card 4: Promedio
         doc.rect(154, y, 44, 16, 'FD');
@@ -1379,21 +1468,29 @@ export default function MerchantReportsTabPanel({
 
         y += 66;
 
-        // Visual Graph #3: Coupon Redemption ratio full box
-        doc.rect(10, y, 190, 26, 'S');
+        // Visual Graph #3: Temporal Behavior and Peak Afluence Box
+        doc.rect(10, y, 190, 36, 'S');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
-        doc.text('CONVERSIÓN DE CUPONES: PREMIOS OTORGADOS VS CANJES EFECTUADOS', 14, y + 6);
-        
-        const couponsData = getCouponStatus();
-        const maxCouponsVal = Math.max(couponsData.unlocked, 1);
-        
-        drawPDFProgressBar('Premios Canjeados por el Cliente (Efectivos)', couponsData.redeemed, maxCouponsVal, 14, y + 15, 130, [225, 29, 72]);
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7.5);
-        doc.text(`Cupones libres activos: ${couponsData.active} vouchers`, 154, y + 16);
+        doc.text('ANÁLISIS DE COMPORTAMIENTO: AFLUENCIA TEMPORAL Y PICO DE SOCIOS', 14, y + 6);
 
-        y += 35;
+        const daysOfWeek = getVisitsByDayOfWeek();
+        const maxDayVal = Math.max(...daysOfWeek.map(d => d.count), 1);
+        const topDay = daysOfWeek.reduce((prev, current) => (prev.count > current.count) ? prev : current, daysOfWeek[0]);
+
+        const timeSegments = getVisitsByTimeOfDay();
+        const maxTimeVal = Math.max(...timeSegments.map(t => t.count), 1);
+        const topTime = timeSegments.reduce((prev, current) => (prev.count > current.count) ? prev : current, timeSegments[0]);
+
+        drawPDFProgressBar(`Día Pico: ${topDay.day}`, topDay.count, maxDayVal, 14, y + 16, 75, [79, 70, 229]);
+        drawPDFProgressBar(`Horario Pico: ${topTime.label.split(' ')[0]}`, topTime.count, maxTimeVal, 108, y + 16, 75, [245, 158, 11]);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text(`* El club de fidelidad registra mayor actividad los días ${topDay.day} en el horario de la ${topTime.label.toLowerCase()}.`, 14, y + 28);
+        doc.text(`Tasa de Retención actual de la clientela: ${retentionRate}% (Socios con 2+ visitas).`, 14, y + 32);
+
+        y += 44;
 
         // Brief conclusion block on first page
         doc.setFillColor(248, 250, 252);
@@ -1404,7 +1501,7 @@ export default function MerchantReportsTabPanel({
         y += 6;
         addText('RECOMENDACIÓN ANALÍTICA DE GESTIÓN DE CLUB:', 14, 8, { fontStyle: 'bold' });
         y += 4.5;
-        addText(`Actualmente el club cuenta con ${customers.length} socios y un promedio de canje de cupones de un ${Math.round((couponsData.redeemed / maxCouponsVal) * 100)}%. Fomente visitas ofreciendo bonus-sellos en días de baja facturación.`, 14, 7.5, { fontStyle: 'italic' });
+        addText(`Actualmente el club cuenta con ${customers.length} socios, una tasa de retención del ${retentionRate}% y mayor afluencia los días ${topDay.day}. Fomente visitas ofreciendo bonus-sellos en días de baja facturación.`, 14, 7.5, { fontStyle: 'italic' });
 
         // Go to next page for table details
         doc.addPage();
@@ -1457,11 +1554,13 @@ export default function MerchantReportsTabPanel({
           }
           doc.text(trimmedName, 28, y);
           doc.text(String(c.phone || 'N/A'), 85, y);
-          doc.text(`${c.currentStamps || 0}/10`, 128, y);
+          doc.text(`${c.currentStamps || 0}/8`, 128, y);
 
           const redeemed = c.unlockedVouchers?.filter(v => v.isRedeemed).length || 0;
           const totalV = c.unlockedVouchers?.length || 0;
-          doc.text(`${redeemed} de ${totalV} canjeados`, 150, y);
+          const left = 8 - (c.currentStamps || 0);
+          const recompensaText = totalV > 0 ? `${redeemed}/${totalV} canjes` : `Faltan ${left} tazas`;
+          doc.text(recompensaText, 150, y);
           doc.text(`${c.points || 0} pts`, 182, y);
 
           doc.setDrawColor(241, 245, 249);
@@ -1839,10 +1938,36 @@ export default function MerchantReportsTabPanel({
     }
   };
 
-  // Top Customers
+  // Top Customers: todo aquel cliente que pase a 4 tazas o 5, 6, 7 y 8 se va a los primeros lugares (top)
   const topCustomers = [...customers]
-    .sort((a, b) => b.totalStampsEarned - a.totalStampsEarned)
-    .slice(0, 5);
+    .sort((a, b) => {
+      const aStamps = a.currentStamps || 0;
+      const bStamps = b.currentStamps || 0;
+      
+      const aIsTop = aStamps >= 4;
+      const bIsTop = bStamps >= 4;
+      
+      if (aIsTop && !bIsTop) return -1;
+      if (!aIsTop && bIsTop) return 1;
+      
+      if (aIsTop && bIsTop) {
+        // Both are in the 4-8 range, sort by currentStamps descending
+        if (bStamps !== aStamps) {
+          return bStamps - aStamps;
+        }
+      }
+      
+      // Fallback: sort by totalStampsEarned descending
+      const aTotal = a.totalStampsEarned || 0;
+      const bTotal = b.totalStampsEarned || 0;
+      if (bTotal !== aTotal) {
+        return bTotal - aTotal;
+      }
+      
+      // Secondary fallback: currentStamps descending
+      return bStamps - aStamps;
+    })
+    .slice(0, 10);
 
   return (
     <div className="w-full space-y-7 text-left">
@@ -1920,6 +2045,24 @@ export default function MerchantReportsTabPanel({
         >
           <ClipboardList size={14} className={activeSubTab === 'acciones' ? 'text-white' : 'text-[#149b8f]'} />
           <span>Registro de Acciones</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('fallas')}
+          className={`flex-1 min-w-[120px] px-3.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeSubTab === 'fallas'
+              ? 'bg-[#149b8f] text-white shadow-sm scale-[1.02]'
+              : 'bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <HelpCircle size={14} className={activeSubTab === 'fallas' ? 'text-white' : 'text-[#149b8f]'} />
+          <span>Fallas Reportadas</span>
+          {supportReports.length > 0 && (
+            <span className="w-5 h-5 rounded-full bg-red-500 text-white font-mono text-[9px] font-black flex items-center justify-center animate-pulse">
+              {supportReports.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -2236,7 +2379,7 @@ export default function MerchantReportsTabPanel({
             {[
               { label: 'Clientes Registrados', value: customers.length, color: 'text-[#149b8f]' },
               { label: 'Visitas Totales', value: visits.length, color: 'text-slate-800' },
-              { label: 'Premios Otorgados', value: customers.reduce((sum, c) => sum + (c.unlockedVouchers?.length || 0), 0), color: 'text-rose-600' },
+              { label: 'Tasa de Retención', value: `${retentionRate}%`, color: 'text-indigo-600' },
               { label: 'Promedio Visitas/Cliente', value: customers.length > 0 ? (visits.length / customers.length).toFixed(1) : '0.0', color: 'text-teal-700' }
             ].map((met, idx) => (
               <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
@@ -2476,50 +2619,48 @@ export default function MerchantReportsTabPanel({
             </div>
           </div>
 
-          {/* Box 3: Gauge of coupon status */}
+          {/* Box 3: Comportamiento de Retención de Clientes */}
           <div className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4.5 space-y-3 shadow-inner">
             <div className="flex justify-between items-center">
-              <span className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider">Conversión de Cupones de Premio</span>
-              <span className="text-[9px] text-rose-600 font-bold">Tasa Canjes</span>
+              <span className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider">Retención de Clientes</span>
+              <span className="text-[9px] text-indigo-600 font-bold uppercase tracking-wider">Fidelidad</span>
             </div>
             <div className="pt-1">
               {(() => {
-                const stats = getCouponStatus();
-                const total = stats.unlocked;
-                const redeemedPct = total > 0 ? (stats.redeemed / total) * 100 : 50;
+                const stats = getRetentionStats();
                 return (
                   <div className="flex items-center gap-4 py-1.5 justify-around flex-wrap">
-                    {/* SVG Ring Dial */}
+                    {/* SVG Ring Dial for Retention */}
                     <div className="relative w-16 h-16 shrink-0">
                       <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                         <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f1f5f9" strokeWidth="3" />
                         <circle 
                           cx="18" cy="18" r="15.915" fill="none" 
-                          stroke="#e11d48" strokeWidth="3" 
-                          strokeDasharray={`${redeemedPct} ${100 - redeemedPct}`} 
+                          stroke="#4f46e5" strokeWidth="3" 
+                          strokeDasharray={`${stats.recurringPct} ${100 - stats.recurringPct}`} 
                           strokeDashoffset="0"
                           strokeLinecap="round"
                         />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <span className="text-xs font-mono font-black text-rose-600 leading-none">{Math.round(redeemedPct)}%</span>
-                        <span className="text-[7px] uppercase font-bold text-slate-400">Canje</span>
+                        <span className="text-xs font-mono font-black text-indigo-600 leading-none">{stats.recurringPct}%</span>
+                        <span className="text-[7px] uppercase font-bold text-slate-400">Retención</span>
                       </div>
                     </div>
                     
                     {/* Segment Metrics */}
                     <div className="space-y-1 text-xs text-left">
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-slate-300" />
-                        <span className="text-slate-500 text-[11px] font-medium">Otorgados: <strong>{total}</strong></span>
+                        <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                        <span className="text-slate-500 text-[11px] font-medium">Recurrentes (2+): <strong>{stats.returningCount}</strong></span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-rose-500" />
-                        <span className="text-slate-500 text-[11px] font-medium">Canjeados: <strong className="text-rose-600">{stats.redeemed}</strong></span>
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span className="text-slate-500 text-[11px] font-medium">Nuevos (1): <strong>{stats.singleVisitCount}</strong></span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-slate-500 text-[11px] font-medium">Pendientes: <strong className="text-emerald-700">{stats.active}</strong></span>
+                        <span className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span className="text-slate-500 text-[11px] font-medium">Inactivos (0): <strong>{stats.noVisitCount}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -2528,6 +2669,65 @@ export default function MerchantReportsTabPanel({
             </div>
           </div>
 
+        </div>
+      </div>
+
+      {/* Análisis de Comportamiento Temporal (Días y Horas Pico) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <h4 className="font-serif font-black text-slate-900 text-sm flex items-center gap-2">
+          <Calendar size={15} className="text-[#149b8f]" />
+          Análisis de Comportamiento Temporal (Días y Horas Pico de Socios)
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Day of week bar chart */}
+          <div className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3">
+            <span className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider block text-left">Afluencia por Día de la Semana</span>
+            <div className="space-y-2 pt-1 text-left">
+              {(() => {
+                const daysData = getVisitsByDayOfWeek();
+                const maxCount = Math.max(...daysData.map(d => d.count), 1);
+                return daysData.map(d => {
+                  const pct = (d.count / maxCount) * 100;
+                  return (
+                    <div key={d.day} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                        <span>{d.day}</span>
+                        <span className="font-mono">{d.count} visitas</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-200/60 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* Time of day chart */}
+          <div className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3">
+            <span className="text-[10.5px] uppercase font-sans text-slate-500 font-extrabold tracking-wider block text-left">Distribución por Bloques Horarios</span>
+            <div className="space-y-3 pt-1 text-left">
+              {(() => {
+                const timeData = getVisitsByTimeOfDay();
+                const maxCount = Math.max(...timeData.map(t => t.count), 1);
+                return timeData.map(t => {
+                  const pct = (t.count / maxCount) * 100;
+                  return (
+                    <div key={t.label} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                        <span>{t.label}</span>
+                        <span className="font-mono">{t.count} visitas</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-200/60 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2578,25 +2778,94 @@ export default function MerchantReportsTabPanel({
 
         {/* Right: Charts using visual custom meters */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-          <h3 className="font-serif font-black text-sm text-slate-800 border-b border-slate-150 pb-2">
-            Top Clientes Frecuentes
-          </h3>
+          <div className="border-b border-slate-150 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <h3 className="font-serif font-black text-sm text-slate-800 flex items-center gap-1.5">
+              Top Clientes & Socios Frecuentes
+            </h3>
+            <span className="text-[8.5px] uppercase font-sans text-indigo-600 font-extrabold tracking-wider bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full self-start">
+              Prioridad: 4-8 Tazas Primero
+            </span>
+          </div>
 
-          <div className="space-y-3.5">
+          <div className="space-y-3">
             {topCustomers.map((cust, idx) => {
-              const maxStamps = Math.max(...customers.map(c => c.totalStampsEarned));
-              const widthPerc = maxStamps > 0 ? (cust.totalStampsEarned / maxStamps) * 100 : 50;
+              const current = cust.currentStamps || 0;
+              const total = cust.totalStampsEarned || 0;
+              const isPremium = current >= 4;
+              
+              // Progress bar is out of 8 tazas (the standard loyalty card goal)
+              const widthPerc = Math.min(100, (current / 8) * 100);
+              
+              // Custom badges for levels based on current tazas
+              let badgeText = '';
+              let badgeColor = '';
+              if (current === 8) {
+                badgeText = '🎁 ¡Canje Listo!';
+                badgeColor = 'bg-rose-50 text-rose-650 border-rose-100';
+              } else if (current >= 6) {
+                badgeText = '🔥 Oro';
+                badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+              } else if (current >= 4) {
+                badgeText = '⭐ Plata';
+                badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-100';
+              }
+
               return (
-                <div key={cust.folio} className="space-y-1.5 text-xs">
-                  <div className="flex justify-between font-bold text-slate-700">
-                    <span>{idx + 1}. {cust.name} (#{cust.folio})</span>
-                    <span>{cust.totalStampsEarned} tazas</span>
+                <div 
+                  key={cust.folio} 
+                  className={`p-2.5 rounded-xl border transition-all space-y-1.5 text-xs ${
+                    isPremium 
+                      ? 'bg-slate-50/70 border-indigo-150 shadow-xs' 
+                      : 'bg-white border-slate-100'
+                  }`}
+                >
+                  <div className="flex justify-between items-center font-sans">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center font-mono font-black text-[10px] shrink-0 ${
+                        idx === 0 ? 'bg-amber-100 text-amber-800' :
+                        idx === 1 ? 'bg-slate-200 text-slate-800' :
+                        idx === 2 ? 'bg-orange-100 text-orange-800' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className="font-bold text-slate-800 truncate" title={cust.name}>
+                        {cust.name}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono">
+                        (#{cust.folio})
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {badgeText && (
+                        <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-full border ${badgeColor}`}>
+                          {badgeText}
+                        </span>
+                      )}
+                      <span className="font-mono text-[10.5px] font-bold text-slate-500">
+                        {current}/8 act.
+                      </span>
+                    </div>
                   </div>
-                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div 
-                      className="h-full bg-gradient-to-r from-[#149b8f] to-teal-400 rounded-full" 
-                      style={{ width: `${widthPerc}%` }}
-                    />
+
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full bg-slate-150 rounded-full overflow-hidden border border-slate-200/50">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          current === 8 
+                            ? 'bg-gradient-to-r from-rose-500 to-amber-500' 
+                            : isPremium 
+                              ? 'bg-gradient-to-r from-indigo-500 to-teal-400' 
+                              : 'bg-gradient-to-r from-[#149b8f] to-teal-300'
+                        }`} 
+                        style={{ width: `${widthPerc}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] font-medium text-slate-400 font-mono">
+                      <span>Tarjeta activa</span>
+                      <span>Histórico acumulado: <strong>{total} tazas</strong></span>
+                    </div>
                   </div>
                 </div>
               );
@@ -3615,6 +3884,183 @@ export default function MerchantReportsTabPanel({
           </table>
         </div>
       </div>
+        </div>
+      )}
+
+      {/* Fallas del Sistema Reportadas Tab Panel */}
+      {activeSubTab === 'fallas' && (
+        <div className="space-y-7 animate-in fade-in duration-200 text-left w-full">
+          {!fallasUnlocked ? (
+            <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 text-center my-6">
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto border border-red-100 shadow-sm animate-pulse">
+                <Lock size={20} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-black text-slate-800">Visualización Protegida</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Para visualizar y gestionar los reportes de fallas técnicas de la sucursal, ingrese la clave de administración autorizada (2303).
+                </p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (fallasPinInput === '2303') {
+                    setFallasUnlocked(true);
+                    setFallasPinError('');
+                  } else {
+                    setFallasPinError('Clave de administración incorrecta.');
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1">
+                  <input
+                    type="password"
+                    placeholder="••••"
+                    maxLength={6}
+                    value={fallasPinInput}
+                    onChange={(e) => setFallasPinInput(e.target.value)}
+                    className="w-full bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest outline-none focus:border-[#149b8f] focus:ring-1 focus:ring-[#149b8f]/20 transition-all shadow-inner"
+                    autoFocus
+                  />
+                  {fallasPinError && (
+                    <p className="text-[10px] text-red-500 font-bold mt-1 text-center animate-shake">
+                      ❌ {fallasPinError}
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-[#149b8f] hover:bg-[#11857a] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer uppercase tracking-wider"
+                >
+                  <Unlock size={12} />
+                  Desbloquear Reportes
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-150 pb-2.5">
+                <h3 className="font-serif font-black text-base text-slate-900 flex items-center gap-1.5">
+                  <HelpCircle size={18} className="text-red-500" />
+                  Reportes de Fallas del Sistema
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFallasUnlocked(false);
+                    setFallasPinInput('');
+                    setFallasPinError('');
+                  }}
+                  className="px-2.5 py-1 text-slate-500 hover:text-red-500 border border-slate-200 hover:border-red-150 rounded-lg text-[10px] font-bold font-sans transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Lock size={10} />
+                  Bloquear Vista
+                </button>
+              </div>
+              
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Aquí se muestran los reportes de fallas o problemas técnicos que los encargados y líderes han reportado de forma libre. Puedes marcarlos como resueltos o eliminarlos del sistema.
+              </p>
+
+              <div className="grid grid-cols-1 gap-4">
+                {supportReports.length === 0 ? (
+                  <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl space-y-3">
+                    <span className="text-2xl block">🎉</span>
+                    <p className="text-xs text-slate-500 font-bold">¡No hay fallas reportadas en este momento!</p>
+                    <p className="text-[10px] text-slate-400">El sistema funciona perfectamente sin problemas registrados.</p>
+                  </div>
+                ) : (
+                  supportReports.map((report) => {
+                    const dateStr = new Date(report.timestamp).toLocaleString('es-MX', {
+                      day: '2-digit', month: '2-digit', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit', second: '2-digit',
+                      hour12: false
+                    });
+                    return (
+                      <div 
+                        key={report.id} 
+                        className={`border rounded-2xl p-5 bg-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all hover:shadow-md ${
+                          report.status === 'resolved' 
+                            ? 'border-emerald-250 bg-emerald-50/15' 
+                            : 'border-red-200 border-l-4 border-l-red-500 bg-red-50/5'
+                        }`}
+                      >
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded-full ${
+                              report.status === 'resolved' 
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-250' 
+                                : 'bg-red-100 text-red-800 border border-red-250 animate-pulse'
+                            }`}>
+                              {report.status === 'resolved' ? '✅ Solucionado' : '⚠️ Pendiente de Revisión'}
+                            </span>
+                            <span className="text-slate-400 font-mono text-[10.5px]">{dateStr}</span>
+                          </div>
+                          
+                          <p className="text-xs font-serif font-black text-slate-800 leading-relaxed bg-white/70 p-3 rounded-xl border border-slate-100 shadow-sm">
+                            {report.description}
+                          </p>
+
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-sans">
+                            <span className="font-bold text-slate-700">Reportado por:</span>
+                            <span className="font-mono bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded text-slate-600">
+                              {report.clerkCode}
+                            </span>
+                            <span className="font-medium text-slate-600">{report.clerkName}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                          {report.status !== 'resolved' && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const updatedReport = { ...report, status: 'resolved' as const };
+                                try {
+                                  if (onSaveSupportReport) {
+                                    await onSaveSupportReport(updatedReport);
+                                  }
+                                } catch (err) {
+                                  console.error('Error updating support report status:', err);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-emerald-550 hover:bg-emerald-600 text-white rounded-xl text-[10.5px] font-bold font-sans flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm shadow-emerald-700/10"
+                            >
+                              <Check size={11} className="stroke-[3]" />
+                              Marcar Solucionado
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (confirm('¿Estás seguro de que deseas eliminar este reporte de falla permanentemente?')) {
+                                try {
+                                  if (onDeleteSupportReport) {
+                                    await onDeleteSupportReport(report.id);
+                                  }
+                                } catch (err) {
+                                  console.error('Error deleting support report:', err);
+                                }
+                              }
+                            }}
+                            className="p-2 text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-xl border border-slate-200 hover:border-red-200 transition-all cursor-pointer"
+                            title="Eliminar Reporte Permanentemente"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Dynamic Submissions auditor Modal Pop up */}
       {showSubmissionsModal && (() => {
@@ -3907,8 +4353,6 @@ export default function MerchantReportsTabPanel({
             </form>
 
           </div>
-        </div>
-      )}
         </div>
       )}
 

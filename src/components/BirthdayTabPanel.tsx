@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Gift, Calendar, Share2, Copy, Check, Lock, Phone, UserCheck, TrendingUp } from 'lucide-react';
+import { Gift, Calendar, Share2, Copy, Check, Lock, Phone, UserCheck, TrendingUp, Mail } from 'lucide-react';
 import { RegisteredCustomer, Clerk } from '../types';
 
 interface BirthdayTabPanelProps {
   customers: RegisteredCustomer[];
   clerks?: Clerk[];
-  onConfirmBirthdayCall?: (customerFolio: string, clerkCode: string, clerkName: string) => Promise<void>;
+  onConfirmBirthdayCall?: (customerFolio: string, clerkCode: string, clerkName: string, callStatus?: 'contesto' | 'no_contesto', notes?: string) => Promise<void>;
   onConfirmBirthdayWhatsApp?: (customerFolio: string, clerkCode: string, clerkName: string) => Promise<void>;
   logs?: any[];
 }
@@ -38,6 +38,21 @@ export default function BirthdayTabPanel({
     clerkName: string;
     clerkCode: string;
   } | null>(null);
+
+  // Call Registration Modal State
+  const [callModalData, setCallModalData] = useState<{
+    folio: string;
+    customerName: string;
+    phone: string;
+    email: string;
+    label: string;
+  } | null>(null);
+  const [callPin, setCallPin] = useState('');
+  const [callStatus, setCallStatus] = useState<'contesto' | 'no_contesto'>('contesto');
+  const [callNotes, setCallNotes] = useState('');
+  const [callPinError, setCallPinError] = useState('');
+  const [isCallSubmitting, setIsCallSubmitting] = useState(false);
+  const [copiedMissedCallWaId, setCopiedMissedCallWaId] = useState<string | null>(null);
 
   const getSpanishMonthName = (monthIdx: number) => {
     const months = [
@@ -141,6 +156,21 @@ export default function BirthdayTabPanel({
     window.open(url, '_blank');
   };
 
+  const handleSendEmail = (name: string, email: string, folio: string, label: string) => {
+    const text = getCustomGreeting(name, folio, label);
+    const subject = '¡Feliz Cumpleaños de parte de Mi Cafecito! 🍰✨';
+    const cleanEmail = email?.trim() || '';
+    
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      navigator.clipboard.writeText(text);
+      alert(`Este cliente no tiene registrado un correo electrónico válido. Hemos copiado el mensaje de felicitación en tu portapapeles para que lo envíes manualmente.`);
+      return;
+    }
+    
+    const mailtoUrl = `mailto:${encodeURIComponent(cleanEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+    window.open(mailtoUrl, '_blank');
+  };
+
   const handlePinChange = (folio: string, val: string) => {
     setPinInputs(prev => ({ ...prev, [folio]: val }));
     setPinErrors(prev => ({ ...prev, [folio]: '' }));
@@ -151,10 +181,17 @@ export default function BirthdayTabPanel({
     setWaPinErrors(prev => ({ ...prev, [folio]: '' }));
   };
 
-  const handleConfirmCall = async (folio: string, customerName: string) => {
-    const pin = pinInputs[folio] || '';
+  const handleConfirmModalCallSubmit = async () => {
+    if (!callModalData) return;
+    const { folio } = callModalData;
+    const pin = callPin;
     if (!pin.trim()) {
-      setPinErrors(prev => ({ ...prev, [folio]: 'Digita tu clave PIN' }));
+      setCallPinError('Digita tu clave PIN');
+      return;
+    }
+
+    if (!callNotes.trim()) {
+      alert('Las notas u observaciones son obligatorias');
       return;
     }
 
@@ -163,32 +200,27 @@ export default function BirthdayTabPanel({
                          (pin === 'BISTRO2026' ? { code: 'ADMIN', name: 'Gerente General' } : null);
 
     if (!matchedClerk) {
-      setPinErrors(prev => ({ ...prev, [folio]: 'Clave PIN incorrecta' }));
+      setCallPinError('Clave PIN incorrecta');
       return;
     }
 
-    setLoadingFolio(folio);
+    setIsCallSubmitting(true);
     try {
       if (onConfirmBirthdayCall) {
-        await onConfirmBirthdayCall(folio, matchedClerk.code, matchedClerk.name);
+        await onConfirmBirthdayCall(folio, matchedClerk.code, matchedClerk.name, callStatus, callNotes);
       }
 
-      // Success: clear fields
-      setPinInputs(prev => {
-        const u = { ...prev };
-        delete u[folio];
-        return u;
-      });
-      setPinErrors(prev => {
-        const u = { ...prev };
-        delete u[folio];
-        return u;
-      });
+      // Success: reset state & close modal
+      setCallModalData(null);
+      setCallStatus('contesto');
+      setCallNotes('');
+      setCallPin('');
+      setCallPinError('');
     } catch (e) {
       console.error(e);
-      setPinErrors(prev => ({ ...prev, [folio]: 'Error de conexión' }));
+      setCallPinError('Error de conexión al registrar la llamada');
     } finally {
-      setLoadingFolio(null);
+      setIsCallSubmitting(false);
     }
   };
 
@@ -231,10 +263,184 @@ export default function BirthdayTabPanel({
     });
   };
 
+  const getMissedCallMessage = (name: string, folio: string) => {
+    return `¡Hola, ${name}! 🥳 Te llamamos de parte de tu cafetería favorita "Mi Cafecito" ☕ para saludarte por tu cumpleaños, pero no logramos comunicarnos contigo. Te dejamos este mensajito para felicitarte y recordarte que hoy en tu día especial queremos consentirte. ¡Visítanos y te regalaremos una deliciosa rebanada de pastel gratis en tu consumo! 🍰✨ Folio #${folio}`;
+  };
+
+  const handleCopyMissedCall = (name: string, folio: string) => {
+    const text = getMissedCallMessage(name, folio);
+    navigator.clipboard.writeText(text);
+    setCopiedMissedCallWaId(folio);
+    setTimeout(() => setCopiedMissedCallWaId(null), 2500);
+  };
+
   const currentMonthIdx = new Date().getMonth(); // Dynamic current month index
 
   return (
     <div className="w-full space-y-5 text-left">
+      {/* Call Registration Modal with Status, Mandatory Notes & PIN */}
+      {callModalData && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl text-left space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-150 my-8">
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-black tracking-widest text-[#149b8f] uppercase font-sans">Control de Cumpleaños</span>
+                <h3 className="text-lg font-serif font-black text-slate-900 mt-0.5">Registrar Llamada</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setCallModalData(null);
+                  setCallStatus('contesto');
+                  setCallNotes('');
+                  setCallPin('');
+                  setCallPinError('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-50 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Customer summary */}
+              <div className="bg-slate-50 border border-slate-150 p-3 rounded-2xl space-y-1">
+                <p className="text-xs text-slate-500 font-medium">Cliente:</p>
+                <h4 className="text-sm font-bold text-slate-800">{callModalData.customerName} (#{callModalData.folio})</h4>
+                <p className="text-xs text-[#149b8f] font-mono font-semibold">📱 Teléfono: {callModalData.phone}</p>
+              </div>
+
+              {/* Status selectors */}
+              <div className="space-y-2">
+                <label className="text-xs font-black tracking-wider text-slate-500 uppercase block">Resultado de la Llamada</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCallStatus('contesto')}
+                    className={`py-3 px-4 rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 transition cursor-pointer border-2 text-center ${
+                      callStatus === 'contesto'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${callStatus === 'contesto' ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
+                    <span>Sí Contestó 📞</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCallStatus('no_contesto')}
+                    className={`py-3 px-4 rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 transition cursor-pointer border-2 text-center ${
+                      callStatus === 'no_contesto'
+                        ? 'bg-rose-50 border-rose-500 text-rose-800 shadow-sm'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${callStatus === 'no_contesto' ? 'bg-rose-500' : 'bg-slate-300'}`}></span>
+                    <span>No Contestó 📵</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Conditionally show WA Missed Call copy-paste block if 'no_contesto' */}
+              {callStatus === 'no_contesto' && (
+                <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-4 space-y-2.5 animate-in slide-in-from-top-3 duration-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider font-sans">Mensaje para WhatsApp</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMissedCall(callModalData.customerName, callModalData.folio)}
+                      className="text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedMissedCallWaId === callModalData.folio ? (
+                        <>
+                          <Check size={10} className="stroke-[3]" />
+                          <span>¡Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={10} />
+                          <span>Copiar Mensaje</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-amber-950 font-medium font-sans leading-relaxed bg-white/70 border border-amber-200 p-2.5 rounded-xl max-h-[100px] overflow-y-auto">
+                    {getMissedCallMessage(callModalData.customerName, callModalData.folio)}
+                  </p>
+                  <p className="text-[9px] text-amber-800 font-semibold italic">
+                    💡 Copia este mensaje y envíaselo por WhatsApp para recordarle su cortesía de pastel.
+                  </p>
+                </div>
+              )}
+
+              {/* Notes/observations - MANDATORY */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <label className="text-xs font-black tracking-wider text-slate-500 uppercase block">
+                    Notas u Observaciones <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-rose-500 font-bold font-mono">Obligatorio</span>
+                </div>
+                <textarea
+                  value={callNotes}
+                  onChange={(e) => setCallNotes(e.target.value)}
+                  placeholder="Ej: Se le invitó a venir hoy por su rebanada de pastel gratis. Mencionó que vendrá el fin de semana."
+                  className="w-full text-xs p-3 border border-slate-200 rounded-2xl focus:outline-none focus:ring-1 focus:ring-[#149b8f] min-h-[70px] resize-none"
+                  required
+                />
+              </div>
+
+              {/* PIN input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black tracking-wider text-slate-500 uppercase block">Clave PIN de Encargado <span className="text-rose-500">*</span></label>
+                <input
+                  type="password"
+                  placeholder="Ingresa tu clave PIN"
+                  value={callPin}
+                  onChange={(e) => {
+                    setCallPin(e.target.value);
+                    setCallPinError('');
+                  }}
+                  className={`w-full text-xs p-3 border rounded-2xl focus:outline-none focus:ring-1 focus:ring-[#149b8f] ${
+                    callPinError ? 'border-red-500 ring-1 ring-red-200' : 'border-slate-200'
+                  }`}
+                  maxLength={10}
+                />
+                {callPinError && (
+                  <p className="text-[10px] text-red-500 font-bold">{callPinError}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Modal actions */}
+            <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setCallModalData(null);
+                  setCallStatus('contesto');
+                  setCallNotes('');
+                  setCallPin('');
+                  setCallPinError('');
+                }}
+                className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-center cursor-pointer transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmModalCallSubmit}
+                disabled={!callNotes.trim() || !callPin.trim() || isCallSubmitting}
+                className="py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl font-bold text-center cursor-pointer transition shadow-sm disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                {isCallSubmitting ? 'Registrando...' : 'Confirmar Registro'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* WhatsApp clerk confirmation modal */}
       {whatsappConfirmData && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -397,80 +603,86 @@ export default function BirthdayTabPanel({
                           </span>
                         </div>
                       ) : (
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                          <div className="relative">
-                            <input 
-                              type="password"
-                              placeholder="PIN Encargado"
-                              value={pinVal}
-                              onChange={(e) => handlePinChange(folio, e.target.value)}
-                              className={`text-xs px-3 py-2 border rounded-xl w-full sm:w-36 focus:outline-none focus:ring-1 focus:ring-[#149b8f] ${
-                                error ? 'border-red-500' : 'border-slate-200'
-                              }`}
-                              maxLength={10}
-                            />
-                            {error && (
-                              <p className="absolute left-1 -bottom-4 text-[9px] text-red-500 font-bold whitespace-nowrap">{error}</p>
-                            )}
-                          </div>
-
-                          <button
-                            onClick={() => handleConfirmCall(folio, customer.name)}
-                            disabled={isLoading}
-                            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
-                          >
-                            <UserCheck size={14} />
-                            {isLoading ? 'Registrando...' : 'Confirmar Llamada'}
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => setCallModalData({
+                            folio: customer.folio,
+                            customerName: customer.name,
+                            phone: customer.phone,
+                            email: customer.email || '',
+                            label: bday.label
+                          })}
+                          className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm hover:scale-[1.02] active:scale-95"
+                        >
+                          <Phone size={14} />
+                          <span>Registrar Llamada (Status & Notas)</span>
+                        </button>
                       )}
                     </div>
 
-                    {/* SECTION 2: BIRTHDAY WHATSAPP MESSAGE */}
+                    {/* SECTION 2: BIRTHDAY WHATSAPP & EMAIL MESSAGE */}
                     <div className="space-y-1.5 flex-1 max-w-md">
-                      <span className="text-[10px] font-sans font-bold text-slate-400 uppercase tracking-wider block">2. Enviar WhatsApp</span>
+                      <span className="text-[10px] font-sans font-bold text-slate-400 uppercase tracking-wider block">2. Enviar Felicitación (WA / Email)</span>
                       {isBdayToday ? (
-                        hasSentWhatsApp ? (
-                          <div className="inline-flex items-center gap-1.5 text-xs text-emerald-850 bg-emerald-50 border border-emerald-150 px-3 py-2 rounded-xl font-semibold leading-normal">
-                            <Check size={14} className="stroke-[3] text-emerald-600" />
-                            <span>
-                              WhatsApp de felicitación enviado
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                            <div className="relative">
-                              <input 
-                                type="password"
-                                placeholder="PIN Encargado"
-                                value={waPinInputs[folio] || ''}
-                                onChange={(e) => handleWaPinChange(folio, e.target.value)}
-                                className={`text-xs px-3 py-2 border rounded-xl w-full sm:w-36 focus:outline-none focus:ring-1 focus:ring-[#25D366] ${
-                                  waPinErrors[folio] ? 'border-red-500' : 'border-slate-200'
-                                }`}
-                                maxLength={10}
-                              />
-                              {waPinErrors[folio] && (
-                                <p className="absolute left-1 -bottom-4 text-[9px] text-red-500 font-bold whitespace-nowrap">{waPinErrors[folio]}</p>
-                              )}
+                        <div className="flex flex-col gap-2.5">
+                          {hasSentWhatsApp ? (
+                            <div className="inline-flex items-center gap-1.5 text-xs text-emerald-850 bg-emerald-50 border border-emerald-150 px-3 py-2 rounded-xl font-semibold leading-normal w-fit">
+                              <Check size={14} className="stroke-[3] text-emerald-600" />
+                              <span>
+                                WhatsApp de felicitación enviado
+                              </span>
                             </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                              <div className="relative">
+                                <input 
+                                  type="password"
+                                  placeholder="PIN Encargado"
+                                  value={waPinInputs[folio] || ''}
+                                  onChange={(e) => handleWaPinChange(folio, e.target.value)}
+                                  className={`text-xs px-3 py-2 border rounded-xl w-full sm:w-36 focus:outline-none focus:ring-1 focus:ring-[#25D366] ${
+                                    waPinErrors[folio] ? 'border-red-500' : 'border-slate-200'
+                                  }`}
+                                  maxLength={10}
+                                />
+                                {waPinErrors[folio] && (
+                                  <p className="absolute left-1 -bottom-4 text-[9px] text-red-500 font-bold whitespace-nowrap">{waPinErrors[folio]}</p>
+                                )}
+                              </div>
 
-                            <button
-                              onClick={() => handleConfirmWhatsApp(folio, customer.name, customer.phone, bday.label)}
-                              disabled={waLoadingFolio === folio}
-                              className="px-3.5 py-2 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                            >
-                              <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor">
-                                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.713-1.458L0 24zm6.59-4.846c1.6.95 3.1 1.45 4.7 1.45 5.515 0 10.002-4.48 10.005-9.998.002-2.673-1.04-5.186-2.936-7.087-1.895-1.9-4.41-2.946-7.086-2.947-5.518 0-10.005 4.477-10.008 9.995-.001 2 .526 3.96 1.53 5.7l-.37 1.34 1.397-.365zm10.825-7.41c-.29-.145-1.713-.845-1.978-.94-.265-.1-.458-.145-.65.145-.19.29-.74.94-.908 1.135-.166.19-.335.215-.625.07-.29-.145-1.225-.45-2.333-1.442-.862-.77-1.443-1.72-1.611-2.01-.168-.29-.018-.45.127-.59.13-.125.29-.34.436-.51.145-.165.19-.29.29-.48.1-.19.05-.355-.025-.5-.075-.145-.65-1.566-.89-2.14-.233-.56-.47-.482-.65-.492-.17-.008-.363-.01-.555-.01-.19 0-.5.07-.76.355-.26.29-1 .98-1 2.39 0 1.41 1.025 2.78 1.17 2.97.145.19 2.015 3.077 4.88 4.32.68.29 1.21.465 1.625.596.685.22 1.31.19 1.8.116.546-.08 1.712-.7 1.954-1.378.24-.678.24-1.26.17-1.38-.076-.12-.27-.19-.56-.335z" />
-                              </svg>
-                              {waLoadingFolio === folio ? 'Enviando...' : 'Enviar WhatsApp'}
-                            </button>
-                          </div>
-                        )
+                              <button
+                                onClick={() => handleConfirmWhatsApp(folio, customer.name, customer.phone, bday.label)}
+                                disabled={waLoadingFolio === folio}
+                                className="px-3.5 py-2 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                              >
+                                <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor">
+                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.713-1.458L0 24zm6.59-4.846c1.6.95 3.1 1.45 4.7 1.45 5.515 0 10.002-4.48 10.005-9.998.002-2.673-1.04-5.186-2.936-7.087-1.895-1.9-4.41-2.946-7.086-2.947-5.518 0-10.005 4.477-10.008 9.995-.001 2 .526 3.96 1.53 5.7l-.37 1.34 1.397-.365zm10.825-7.41c-.29-.145-1.713-.845-1.978-.94-.265-.1-.458-.145-.65.145-.19.29-.74.94-.908 1.135-.166.19-.335.215-.625.07-.29-.145-1.225-.45-2.333-1.442-.862-.77-1.443-1.72-1.611-2.01-.168-.29-.018-.45.127-.59.13-.125.29-.34.436-.51.145-.165.19-.29.29-.48.1-.19.05-.355-.025-.5-.075-.145-.65-1.566-.89-2.14-.233-.56-.47-.482-.65-.492-.17-.008-.363-.01-.555-.01-.19 0-.5.07-.76.355-.26.29-1 .98-1 2.39 0 1.41 1.025 2.78 1.17 2.97.145.19 2.015 3.077 4.88 4.32.68.29 1.21.465 1.625.596.685.22 1.31.19 1.8.116.546-.08 1.712-.7 1.954-1.378.24-.678.24-1.26.17-1.38-.076-.12-.27-.19-.56-.335z" />
+                                </svg>
+                                {waLoadingFolio === folio ? 'Enviando...' : 'WhatsApp'}
+                              </button>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() => handleSendEmail(customer.name, customer.email || '', folio, bday.label)}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm max-w-[200px]"
+                          >
+                            <Mail size={14} />
+                            <span>Enviar por Correo</span>
+                          </button>
+                        </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 text-slate-400 px-3 py-2 rounded-xl cursor-default text-[11px] font-sans font-medium">
-                          <Lock size={12} className="text-slate-400" />
-                          <span>Bloqueado hasta el día del cumple ({bday.day})</span>
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 text-slate-400 px-3 py-2 rounded-xl cursor-default text-[11px] font-sans font-medium w-fit">
+                            <Lock size={12} className="text-slate-400" />
+                            <span>WA Bloqueado hasta cumpleaños ({bday.day})</span>
+                          </div>
+                          <button
+                            onClick={() => handleSendEmail(customer.name, customer.email || '', folio, bday.label)}
+                            className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm w-fit"
+                          >
+                            <Mail size={12} />
+                            <span>Enviar por Correo</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -560,16 +772,39 @@ export default function BirthdayTabPanel({
                         {isBdayToday ? '¡Hoy! 🎉' : `En ${bday.daysLeft} días`}
                       </span>
 
+                      {/* Registrar llamada */}
+                      {hasBeenCalled ? (
+                        <div className="text-[11px] font-sans font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1" title="Llamada registrada para este cumpleaños">
+                          <Check size={12} className="stroke-[3] text-emerald-600" />
+                          <span>Llamada registrada</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setCallModalData({
+                            folio: customer.folio,
+                            customerName: customer.name,
+                            phone: customer.phone,
+                            email: customer.email || '',
+                            label: bday.label
+                          })}
+                          className="p-2 border border-amber-250 hover:bg-amber-50 text-amber-600 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                          title="Registrar llamada de cumpleaños"
+                        >
+                          <Phone size={13} />
+                          <span className="text-[10px] font-bold">Llamar</span>
+                        </button>
+                      )}
+
                       {/* Copiar */}
                       <button
                         onClick={() => handleCopyCustomGreeting(customer.name, customer.folio, bday.label)}
-                        className="p-2.5 border border-slate-200 hover:border-[#149b8f] rounded-xl text-slate-500 hover:text-[#149b8f] hover:bg-[#149b8f]/5 transition-all cursor-pointer flex items-center gap-1"
+                        className="p-2 border border-slate-200 hover:border-[#149b8f] rounded-xl text-slate-500 hover:text-[#149b8f] hover:bg-[#149b8f]/5 transition-all cursor-pointer flex items-center gap-1"
                         title="Copiar mensaje de felicitación"
                       >
                         {copiedId === customer.folio ? (
-                          <Check size={14} className="text-emerald-600" />
+                          <Check size={13} className="text-emerald-600" />
                         ) : (
-                          <Copy size={14} />
+                          <Copy size={13} />
                         )}
                         <span className="text-[10px] font-bold">Copiar</span>
                       </button>
@@ -607,9 +842,19 @@ export default function BirthdayTabPanel({
                       ) : (
                         <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 text-slate-400 px-3 py-1.5 rounded-xl cursor-default text-[11px] font-sans font-medium" title="Solo disponible el día de cumpleaños">
                           <Lock size={12} className="text-slate-400" />
-                          <span>Bloqueado</span>
+                          <span>WA</span>
                         </div>
                       )}
+
+                      {/* Correo Electrónico */}
+                      <button
+                        onClick={() => handleSendEmail(customer.name, customer.email || '', customer.folio, bday.label)}
+                        className="p-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                        title="Enviar felicitación por Correo Electrónico"
+                      >
+                        <Mail size={13} />
+                        <span className="text-[10px] font-bold">Email</span>
+                      </button>
                     </div>
                   </div>
                 );
