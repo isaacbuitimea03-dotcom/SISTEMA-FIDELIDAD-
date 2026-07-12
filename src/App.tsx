@@ -1243,6 +1243,9 @@ export default function App() {
     const assigned = new Set(consumers.map(c => c.folio));
     for (let i = 1; i <= 500; i++) {
       const option = String(i).padStart(3, '0');
+      if (option === '217' || option === '259') {
+        continue;
+      }
       if (!assigned.has(option)) {
         list.push(option);
       }
@@ -1629,7 +1632,7 @@ export default function App() {
     };
 
     await runActionWithProgress('Registrando Felicitación Telefónica...', async () => {
-      await syncSetLogs([logRecord, ...logs]);
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
 
       if (!isMockSimulation) {
         await syncSetConsumers(prev => prev.map(c => {
@@ -1676,7 +1679,7 @@ export default function App() {
     };
 
     await runActionWithProgress('Registrando Felicitación de WhatsApp...', async () => {
-      await syncSetLogs([logRecord, ...logs]);
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
     });
 
     setSystemBannerAlert(`¡Envío de WhatsApp registrado por ${clerkName}!`);
@@ -2504,9 +2507,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleConfirmStampWithPin}
-                    className="py-2.5 bg-[#149b8f] hover:bg-[#11847a] text-white rounded-xl font-black cursor-pointer text-center"
+                    disabled={isProcessingAction}
+                    className="py-2.5 bg-[#149b8f] hover:bg-[#11847a] disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl font-black cursor-pointer text-center transition-all disabled:cursor-not-allowed"
                   >
-                    Firmar y Sumar
+                    {isProcessingAction ? 'Sumando...' : 'Firmar y Sumar'}
                   </button>
                 </div>
               </div>
@@ -3711,7 +3715,6 @@ export default function App() {
                     onResetAllData={() => {
                       if (confirm('¿Estás seguro de que deseas reiniciar todos los datos de visitas y logs históricos? Las cuentas de clientes permanecerán a salvo.')) {
                         syncSetVisits([]);
-                        syncSetLogs([]);
                         
                         // Default Log
                         const logRecord: ActivityLog = {

@@ -482,9 +482,10 @@ export default function BirthdayTabPanel({
                     setWaLoadingFolio(null);
                   }
                 }}
-                className="py-2.5 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl font-extrabold text-center cursor-pointer shadow-md transition"
+                disabled={waLoadingFolio !== null}
+                className="py-2.5 bg-[#25D366] hover:bg-[#20ba59] disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl font-extrabold text-center cursor-pointer shadow-md transition disabled:cursor-not-allowed"
               >
-                Confirmar y Abrir WA
+                {waLoadingFolio !== null ? 'Confirmando...' : 'Confirmar y Abrir WA'}
               </button>
             </div>
           </div>
