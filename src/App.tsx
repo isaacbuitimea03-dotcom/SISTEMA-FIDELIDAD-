@@ -115,7 +115,9 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.length > 0) {
           let flag = 0;
-          return parsed.map((c: any) => ({
+          return parsed
+            .filter((c: any) => c.folio !== '217' && c.folio !== '0217')
+            .map((c: any) => ({
             ...c,
             visitsHistory: (c.visitsHistory || []).map((v: any) => {
               let updatedClerkName = v.clerkName;
@@ -142,7 +144,7 @@ export default function App() {
         console.error('Error loading customers', e);
       }
     }
-    return generateInitialCustomers();
+    return generateInitialCustomers().filter(c => c.folio !== '217' && c.folio !== '0217');
   });
 
   const [visits, setVisits] = useState<VisitRecord[]>(() => {
@@ -268,6 +270,23 @@ export default function App() {
 
   const [isFirebaseLoaded, setIsFirebaseLoaded] = useState(false);
 
+  // Refs for stable real-time synchronization
+  const consumersRef = useRef(consumers);
+  consumersRef.current = consumers;
+
+  const visitsRef = useRef(visits);
+  visitsRef.current = visits;
+
+  const logsRef = useRef(logs);
+  logsRef.current = logs;
+
+  const clerksRef = useRef<Clerk[]>([]);
+
+  const surveyAnswersRef = useRef(surveyAnswers);
+  surveyAnswersRef.current = surveyAnswers;
+
+  const deletedCustomerFoliosRef = useRef<Set<string>>(new Set(['217', '0217']));
+
   // Firestore real-time initialization and initial synchronization
   useEffect(() => {
     testConnection();
@@ -285,7 +304,8 @@ export default function App() {
           cloudSurveysSnap,
           cloudAnswersSnap,
           cloudClerksSnap,
-          cloudSupportReportsSnap
+          cloudSupportReportsSnap,
+          cloudDeletedCustomersSnap
         ] = await Promise.all([
           getDocs(collection(db, 'customers')),
           getDocs(collection(db, 'visits')),
@@ -294,10 +314,30 @@ export default function App() {
           getDocs(collection(db, 'surveys')),
           getDocs(collection(db, 'surveyAnswers')),
           getDocs(collection(db, 'clerks')),
-          getDocs(collection(db, 'support_reports'))
+          getDocs(collection(db, 'support_reports')),
+          getDocs(collection(db, 'deleted_customers'))
         ]);
 
-        const cloudCustomers = cloudCustomersSnap.docs.map(d => d.data() as RegisteredCustomer);
+        const cloudDeletedFolios = new Set<string>();
+        cloudDeletedCustomersSnap.docs.forEach(d => {
+          const idVal = d.id;
+          const folVal = (d.data() as any).folio;
+          if (idVal) cloudDeletedFolios.add(idVal);
+          if (folVal) cloudDeletedFolios.add(folVal);
+        });
+        cloudDeletedFolios.add('217');
+        cloudDeletedFolios.add('0217');
+        deletedCustomerFoliosRef.current = cloudDeletedFolios;
+
+        // Ensure 217 is permanently wiped from Firestore
+        try {
+          await deleteDoc(doc(db, 'customers', '217'));
+          await deleteDoc(doc(db, 'customers', '0217'));
+        } catch (_) {}
+
+        const cloudCustomers = cloudCustomersSnap.docs
+          .map(d => d.data() as RegisteredCustomer)
+          .filter(c => !cloudDeletedFolios.has(c.folio) && c.folio !== '217' && c.folio !== '0217');
         const cloudVisits = cloudVisitsSnap.docs.map(d => d.data() as VisitRecord);
         const cloudLogs = cloudLogsSnap.docs.map(d => d.data() as ActivityLog);
         const cloudConfigList = cloudConfigSnap.docs.map(d => d.data() as MerchantConfig);
@@ -313,6 +353,9 @@ export default function App() {
         cloudCustomers.forEach(c => mergedCustomersMap.set(c.folio, c));
 
         for (const localC of consumers) {
+          if (cloudDeletedFolios.has(localC.folio) || localC.folio === '217' || localC.folio === '0217') {
+            continue; // Never resurrect deleted customer
+          }
           const cloudC = mergedCustomersMap.get(localC.folio);
           if (!cloudC) {
             // Local customer registered on this phone/device offline or during permissions failure. Sync to cloud!
@@ -395,16 +438,16 @@ export default function App() {
         let finalConfig = config;
         const cloudConfig = cloudConfigList.find(c => c.pin !== undefined);
         if (!cloudConfig) {
-          if (finalConfig.mainRewardTitle === '20% de Descuento' || finalConfig.mainRewardTitle === 'Café o Bebida Gratis') {
-            finalConfig.mainRewardTitle = '10% de Descuento';
-          }
+          finalConfig.mainRewardTitle = '10% de Descuento en Consumo';
+          finalConfig.stampsRequired = 8;
           await dbSaveConfig(finalConfig);
         } else {
           finalConfig = cloudConfig;
-          if (finalConfig.mainRewardTitle === '20% de Descuento' || finalConfig.mainRewardTitle === 'Café o Bebida Gratis') {
-            finalConfig.mainRewardTitle = '10% de Descuento';
-            await dbSaveConfig(finalConfig);
+          if (finalConfig.mainRewardTitle !== '10% de Descuento en Consumo' && finalConfig.mainRewardTitle !== '10% de Descuento') {
+            finalConfig.mainRewardTitle = '10% de Descuento en Consumo';
           }
+          finalConfig.stampsRequired = 8;
+          await dbSaveConfig(finalConfig);
         }
 
         // Surveys Merge
@@ -490,8 +533,19 @@ export default function App() {
     initSync().then(() => {
       const unsubCustomers = subscribeToCollection<RegisteredCustomer>('customers', (data) => {
         if (data) {
-          const sorted = [...data].sort((a, b) => a.folio.localeCompare(b.folio));
+          const valid = data.filter(c => !deletedCustomerFoliosRef.current.has(c.folio) && c.folio !== '217' && c.folio !== '0217');
+          const sorted = [...valid].sort((a, b) => a.folio.localeCompare(b.folio));
           setConsumers(sorted);
+        }
+      });
+
+      const unsubDeletedCustomers = subscribeToCollection<{ folio: string }>('deleted_customers', (data) => {
+        if (data) {
+          data.forEach(d => {
+            const fol = d.folio || (d as any).id;
+            if (fol) deletedCustomerFoliosRef.current.add(fol);
+          });
+          setConsumers(prev => prev.filter(c => !deletedCustomerFoliosRef.current.has(c.folio) && c.folio !== '217' && c.folio !== '0217'));
         }
       });
 
@@ -513,8 +567,9 @@ export default function App() {
         if (data && data.length > 0) {
           const mConfig = data[0];
           if (mConfig) {
-            if (mConfig.mainRewardTitle === '20% de Descuento' || mConfig.mainRewardTitle === 'Café o Bebida Gratis') {
-              mConfig.mainRewardTitle = '10% de Descuento';
+            if (mConfig.mainRewardTitle !== '10% de Descuento en Consumo' && mConfig.mainRewardTitle !== '10% de Descuento') {
+              mConfig.mainRewardTitle = '10% de Descuento en Consumo';
+              mConfig.stampsRequired = 8;
               dbSaveConfig(mConfig);
             }
             setConfig(mConfig);
@@ -558,6 +613,7 @@ export default function App() {
 
       return () => {
         unsubCustomers();
+        unsubDeletedCustomers();
         unsubVisits();
         unsubLogs();
         unsubConfig();
@@ -593,18 +649,23 @@ export default function App() {
       nextVal = updater;
     }
 
+    // Filter out deleted folios
+    nextVal = nextVal.filter(c => !deletedCustomerFoliosRef.current.has(c.folio) && c.folio !== '217' && c.folio !== '0217');
+
     const oldMap = new Map(currentConsumers.map(c => [c.folio, c]));
     const newMap = new Map(nextVal.map(c => [c.folio, c]));
 
     const deletions: Promise<void>[] = [];
     for (const oldC of currentConsumers) {
       if (!newMap.has(oldC.folio)) {
+        deletedCustomerFoliosRef.current.add(oldC.folio);
         deletions.push(dbDeleteCustomer(oldC.folio));
       }
     }
 
     const saves: Promise<void>[] = [];
     for (const newC of nextVal) {
+      if (deletedCustomerFoliosRef.current.has(newC.folio)) continue;
       const oldC = oldMap.get(newC.folio);
       if (!oldC || JSON.stringify(oldC) !== JSON.stringify(newC)) {
         saves.push(dbSaveCustomer(newC));
@@ -616,6 +677,10 @@ export default function App() {
     } catch (e) {
       console.error("Firestore sync error for consumers:", e);
     }
+
+    try {
+      localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(nextVal));
+    } catch (_) {}
 
     setConsumers(nextVal);
   };
@@ -1149,18 +1214,7 @@ export default function App() {
     localStorage.setItem('bistro_clerks_list', JSON.stringify(CLERKS));
   }, [CLERKS]);
 
-  // Synchronous references to keep track of latest state values in async operations
-  const consumersRef = useRef<RegisteredCustomer[]>([]);
-  const visitsRef = useRef<VisitRecord[]>([]);
-  const logsRef = useRef<ActivityLog[]>([]);
-  const clerksRef = useRef<Clerk[]>([]);
-  const surveyAnswersRef = useRef<SurveyAnswer[]>([]);
-
-  useEffect(() => { consumersRef.current = consumers; }, [consumers]);
-  useEffect(() => { visitsRef.current = visits; }, [visits]);
-  useEffect(() => { logsRef.current = logs; }, [logs]);
   useEffect(() => { clerksRef.current = CLERKS; }, [CLERKS]);
-  useEffect(() => { surveyAnswersRef.current = surveyAnswers; }, [surveyAnswers]);
 
   // Helper date formatter
   const [currentTimeFormatted, setCurrentTimeFormatted] = useState('');
@@ -1973,6 +2027,8 @@ export default function App() {
     };
 
     runActionWithProgress('Eliminando Tarjeta y Registro de Cliente...', async () => {
+      deletedCustomerFoliosRef.current.add(deletingCustomerFolio);
+      await dbDeleteCustomer(deletingCustomerFolio);
       await syncSetConsumers(prev => prev.filter(c => c.folio !== deletingCustomerFolio));
       await syncSetLogs(prevL => [logRecord, ...prevL]);
     });
@@ -3820,31 +3876,33 @@ export default function App() {
       </AnimatePresence>
 
       {/* 🛠️ Support / Help Floating Bubble Button */}
-      <div className="fixed bottom-6 right-6 z-50">
-        <button
-          type="button"
-          onClick={() => {
-            setSupportStep('pin');
-            setSupportPinInput('');
-            setSupportPinError('');
-            setSupportReporterName('');
-            setSupportReporterCode('');
-            setSupportDescriptionInput('');
-            setShowSupportModal(true);
-          }}
-          className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl flex items-center justify-center cursor-pointer transition-all hover:scale-110 active:scale-95 group relative border-2 border-white focus:outline-none"
-          title="Soporte y Ayuda - Reportar Falla"
-        >
-          {/* Pulse Ripple Rings */}
-          <span className="absolute inset-0 rounded-full bg-red-600 animate-ping opacity-30 group-hover:hidden" />
-          <AlertCircle size={24} className="stroke-[2.5]" />
-          
-          {/* Tooltip Label */}
-          <span className="absolute right-16 bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none shadow-md border border-slate-850">
-            🛠️ Reportar Falla (PIN de Encargado)
-          </span>
-        </button>
-      </div>
+      {portalMode !== 'cliente_portal' && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <button
+            type="button"
+            onClick={() => {
+              setSupportStep('pin');
+              setSupportPinInput('');
+              setSupportPinError('');
+              setSupportReporterName('');
+              setSupportReporterCode('');
+              setSupportDescriptionInput('');
+              setShowSupportModal(true);
+            }}
+            className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl flex items-center justify-center cursor-pointer transition-all hover:scale-110 active:scale-95 group relative border-2 border-white focus:outline-none"
+            title="Soporte y Ayuda - Reportar Falla"
+          >
+            {/* Pulse Ripple Rings */}
+            <span className="absolute inset-0 rounded-full bg-red-600 animate-ping opacity-30 group-hover:hidden" />
+            <AlertCircle size={24} className="stroke-[2.5]" />
+            
+            {/* Tooltip Label */}
+            <span className="absolute right-16 bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none shadow-md border border-slate-850">
+              🛠️ Reportar Falla (PIN de Encargado)
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* 🛠️ Support Help Dialog Modal */}
       <AnimatePresence>

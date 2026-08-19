@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Coffee, Sparkles, QrCode, Award, Info } from 'lucide-react';
+import { Coffee, Sparkles, Barcode, Award, Info } from 'lucide-react';
 import { UserSession, MerchantConfig } from '../types';
 import { MiCafecitoLogo } from './MiCafecitoLogo';
 
@@ -223,29 +223,27 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
               <div className="text-[9px] font-mono text-slate-400">FOLIO: {session.folio || session.id}</div>
             </div>
 
-            {/* QR Scanner Display */}
+            {/* Barcode Scanner Display */}
             <div className="flex items-center gap-4 my-auto">
               {/* Click to expand hover zoom wrapper */}
               <div 
                 onClick={(e) => {
-                  e.stopPropagation(); // Avoid flipping when clicking the QR to expand!
+                  e.stopPropagation(); // Avoid flipping when clicking the Barcode to expand!
                   setIsQrZoomed(true);
                 }}
-                className="relative p-2 bg-white rounded-2xl shadow-lg flex-shrink-0 transition hover:scale-105 hover:rotate-1 active:scale-95 cursor-zoom-in group"
-                title="Haga clic para ampliar el QR y escanear fácilmente"
+                className="relative p-2 bg-white rounded-2xl shadow-lg flex-shrink-0 transition hover:scale-105 hover:rotate-1 active:scale-95 cursor-zoom-in group flex flex-col items-center justify-center w-28 h-24 overflow-hidden"
+                title="Haga clic para ampliar el código de barras y escanear fácilmente"
               >
-                {/* Simulated QR Code */}
-                <div className="relative w-24 h-24 flex items-center justify-center bg-white">
-                  <QrCode size={80} className="text-slate-900" />
-                  
-                  {/* Dynamic central stamp logo */}
-                  <div className="absolute w-6 h-6 rounded-full border-1.5 border-white flex items-center justify-center shadow-md overflow-hidden bg-white">
-                    <MiCafecitoLogo size={23} />
-                  </div>
-                  
-                  {/* Holographic scanner line animation */}
-                  <div className={`absolute left-0 right-0 h-0.5 ${currentTheme.scannerLine} opacity-60 animate-bounce`} />
+                {/* Simulated Barcode */}
+                <div className="relative w-full flex-1 flex items-center justify-center bg-white overflow-hidden">
+                  <span className="font-barcode text-4xl text-slate-950 tracking-normal select-none leading-none">
+                    {`*${session.folio || session.id}*`}
+                  </span>
                 </div>
+                {/* Human readable text under the barcode */}
+                <span className="text-[10px] font-mono font-bold text-slate-800 tracking-wider leading-none mt-1">
+                  {session.folio || session.id}
+                </span>
                 
                 {/* Magnify lens badge */}
                 <div className="absolute -bottom-1 -right-1 bg-slate-900 border border-slate-700 w-5 h-5 rounded-full flex items-center justify-center shadow text-[10px] text-white">
@@ -260,7 +258,7 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
                 <p className="text-[11px] text-slate-300 truncate mt-0.5">{session.email || 'Socio Registrado'}</p>
                 
                 <p className="text-[9px] text-slate-400 mt-2 leading-tight bg-white/5 p-1.5 rounded-xl border border-white/5 text-left select-none">
-                  Presiona el QR para agrandarlo y facilitarle el escaneo al cajero.
+                  Presiona el código de barras para agrandarlo y facilitarle el escaneo al cajero.
                 </p>
               </div>
             </div>
@@ -333,22 +331,22 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
 
               <div className="space-y-1">
                 <span className="text-[9px] uppercase font-mono tracking-widest text-[#149b8f] font-extrabold block">ESCANEAR CÓDIGO</span>
-                <h3 className="text-lg font-serif font-black text-slate-900">Código QR del Socio</h3>
+                <h3 className="text-lg font-serif font-black text-slate-900">Código de Barras del Socio</h3>
               </div>
 
-              {/* Huge QR Code */}
-              <div className="mx-auto w-56 h-56 p-3 bg-slate-50 border border-slate-100 rounded-3xl flex items-center justify-center shadow-inner relative overflow-hidden">
+              {/* Huge Barcode Container */}
+              <div className="mx-auto w-full max-w-[320px] h-48 p-4 bg-slate-50 border border-slate-100 rounded-3xl flex flex-col items-center justify-center shadow-inner relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-tr from-teal-500/5 to-transparent pointer-events-none" />
-                <div className="relative w-48 h-48 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                  <QrCode size={170} className="text-slate-900" />
+                <div className="relative w-full h-36 bg-white rounded-2xl flex flex-col items-center justify-center shadow-sm p-4">
+                  {/* Barcode font */}
+                  <span className="font-barcode text-6xl text-slate-950 tracking-normal select-none leading-none">
+                    {`*${session.folio || session.id}*`}
+                  </span>
                   
-                  {/* Floating Mini stamp */}
-                  <div className="absolute w-10 h-10 rounded-full border-2 border-white flex items-center justify-center shadow-md overflow-hidden bg-white">
-                    <MiCafecitoLogo size={38} />
-                  </div>
-                  
-                  {/* Holographic scanner line visual effect */}
-                  <div className={`absolute left-0 right-0 h-1 ${currentTheme.scannerLine} opacity-75 animate-bounce`} />
+                  {/* Human-readable text under */}
+                  <span className="text-sm font-mono font-bold text-slate-850 tracking-widest mt-2">
+                    {session.folio || session.id}
+                  </span>
                 </div>
               </div>
 

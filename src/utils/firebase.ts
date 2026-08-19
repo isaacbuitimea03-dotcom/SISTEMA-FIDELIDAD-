@@ -91,6 +91,10 @@ export async function dbSaveCustomer(customer: RegisteredCustomer) {
   const path = `customers/${customer.folio}`;
   try {
     await setDoc(doc(db, 'customers', customer.folio), customer);
+    // Unmark as deleted if it was previously marked as deleted
+    try {
+      await deleteDoc(doc(db, 'deleted_customers', customer.folio));
+    } catch (_) {}
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -100,8 +104,25 @@ export async function dbDeleteCustomer(folio: string) {
   const path = `customers/${folio}`;
   try {
     await deleteDoc(doc(db, 'customers', folio));
+    // Persist permanent deletion marker so other devices or local storage cannot resurrect this folio
+    try {
+      await setDoc(doc(db, 'deleted_customers', folio), {
+        folio,
+        deletedAt: new Date().toISOString()
+      });
+    } catch (_) {}
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function dbGetDeletedCustomerFolios(): Promise<string[]> {
+  try {
+    const snap = await getDocs(collection(db, 'deleted_customers'));
+    return snap.docs.map(d => d.id || (d.data() as any).folio).filter(Boolean);
+  } catch (e) {
+    console.error('Error fetching deleted customers list:', e);
+    return [];
   }
 }
 
