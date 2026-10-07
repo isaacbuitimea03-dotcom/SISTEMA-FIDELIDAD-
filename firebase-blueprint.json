@@ -14,7 +14,11 @@
         "totalStampsEarned": { "type": "number", "description": "Lifetime coffee stamps earned" },
         "points": { "type": "number", "description": "Total loyalty points accrued" },
         "unlockedVouchers": { "type": "array", "description": "Vouchers available or redeemed by this user" },
-        "visitsHistory": { "type": "array", "description": "A historic chronological record of stamps credited" }
+        "visitsHistory": { "type": "array", "description": "A historic chronological record of stamps credited" },
+        "hasReached8Cups": { "type": "boolean", "description": "Whether the member has reached 8 cups to unlock the 10% discount" },
+        "discount10Given": { "type": "boolean", "description": "Whether the 10% discount has been given/applied at cashier" },
+        "discount10GivenAt": { "type": "string", "description": "ISO timestamp when the 10% discount was applied" },
+        "discount10GivenBy": { "type": "string", "description": "Clerk name who authorized the 10% discount" }
       },
       "required": ["folio", "name", "phone", "email", "birthday", "currentStamps", "totalStampsEarned", "points"]
     },

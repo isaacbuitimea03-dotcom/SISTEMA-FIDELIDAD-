@@ -117,28 +117,48 @@ export default function App() {
           let flag = 0;
           return parsed
             .filter((c: any) => c.folio !== '217' && c.folio !== '0217')
-            .map((c: any) => ({
-            ...c,
-            visitsHistory: (c.visitsHistory || []).map((v: any) => {
-              let updatedClerkName = v.clerkName;
-              let updatedClerkCode = v.clerkCode;
-              if (v.clerkName === 'Arlett' || v.clerkName === 'ARLETT' || (v.clerkCode === 'C03' && v.clerkName?.includes('Arlett'))) {
-                if (flag % 2 === 0) {
-                  updatedClerkName = 'Noelia';
-                  updatedClerkCode = 'C03';
-                } else {
-                  updatedClerkName = 'Jose Luis';
-                  updatedClerkCode = 'CO1';
-                }
-                flag++;
-              }
+            .map((c: any) => {
+              const rawStamps = c.currentStamps || 0;
+              const total = c.totalStampsEarned || 0;
+              const visitsCount = (c.visitsHistory || []).length;
+              const has10Voucher = (c.unlockedVouchers || []).some((v: any) => 
+                v.rewardId === 'rm_main' || v.title?.toLowerCase().includes('10%')
+              );
+              const hasGivenRecord = Boolean(c.discount10GivenAt || c.discount10GivenBy);
+
+              // Un socio solo ha cumplido la meta de 8 tazas si alcanzó 8 tazas reales, tiene cupón de 10%, registro de entrega, o 8+ visitas/total acumulado
+              const hasReached8 = (rawStamps >= 8) || has10Voucher || hasGivenRecord || (Boolean(c.hasReached8Cups) && (total >= 8 || visitsCount >= 8));
+              const resetStamps = rawStamps >= 8 ? 0 : rawStamps;
+              const discountGiven = Boolean(hasReached8 && c.discount10Given);
+
               return {
-                ...v,
-                clerkName: updatedClerkName,
-                clerkCode: updatedClerkCode
+                ...c,
+                currentStamps: resetStamps,
+                hasReached8Cups: hasReached8,
+                discount10Given: discountGiven,
+                ...(discountGiven && c.discount10GivenAt ? { discount10GivenAt: c.discount10GivenAt } : {}),
+                ...(discountGiven && c.discount10GivenBy ? { discount10GivenBy: c.discount10GivenBy } : {}),
+                visitsHistory: (c.visitsHistory || []).map((v: any) => {
+                  let updatedClerkName = v.clerkName;
+                  let updatedClerkCode = v.clerkCode;
+                  if (v.clerkName === 'Arlett' || v.clerkName === 'ARLETT' || (v.clerkCode === 'C03' && v.clerkName?.includes('Arlett'))) {
+                    if (flag % 2 === 0) {
+                      updatedClerkName = 'Noelia';
+                      updatedClerkCode = 'C03';
+                    } else {
+                      updatedClerkName = 'Jose Luis';
+                      updatedClerkCode = 'CO1';
+                    }
+                    flag++;
+                  }
+                  return {
+                    ...v,
+                    clerkName: updatedClerkName,
+                    clerkCode: updatedClerkCode
+                  };
+                })
               };
-            })
-          }));
+            });
         }
       } catch (e) {
         console.error('Error loading customers', e);
@@ -388,17 +408,35 @@ export default function App() {
               }
             });
 
+            const maxStamps = Math.max(localC.currentStamps || 0, cloudC.currentStamps || 0);
+            const maxTotalStamps = Math.max(localC.totalStampsEarned || 0, cloudC.totalStampsEarned || 0);
+            const maxVisits = Math.max((localC.visitsHistory || []).length, (cloudC.visitsHistory || []).length);
+            const has10Voucher = mergedVouchers.some(v => v.rewardId === 'rm_main' || v.title?.toLowerCase().includes('10%'));
+            const hasGivenRecord = Boolean(localC.discount10GivenAt || cloudC.discount10GivenAt || localC.discount10GivenBy || cloudC.discount10GivenBy);
+            
+            const has8 = (maxStamps >= 8) || has10Voucher || hasGivenRecord || ((Boolean(localC.hasReached8Cups) || Boolean(cloudC.hasReached8Cups)) && (maxTotalStamps >= 8 || maxVisits >= 8));
+            const normalizedStamps = maxStamps >= 8 ? 0 : maxStamps;
+            const discountGiven = Boolean(has8 && (localC.discount10Given || cloudC.discount10Given));
+            const givenAt = (discountGiven && (localC.discount10GivenAt || cloudC.discount10GivenAt)) || undefined;
+            const givenBy = (discountGiven && (localC.discount10GivenBy || cloudC.discount10GivenBy)) || undefined;
+            const notes = localC.discount10Notes || cloudC.discount10Notes;
+
             const mergedC: RegisteredCustomer = {
               folio: localC.folio,
               name: localC.name || cloudC.name,
               phone: localC.phone || cloudC.phone,
               email: localC.email || cloudC.email,
               birthday: localC.birthday || cloudC.birthday,
-              currentStamps: Math.max(localC.currentStamps, cloudC.currentStamps),
-              totalStampsEarned: Math.max(localC.totalStampsEarned, cloudC.totalStampsEarned),
-              points: Math.max(localC.points, cloudC.points),
+              currentStamps: normalizedStamps,
+              totalStampsEarned: maxTotalStamps,
+              points: Math.max(localC.points || 0, cloudC.points || 0),
               unlockedVouchers: mergedVouchers,
-              visitsHistory: mergedHistory
+              visitsHistory: mergedHistory,
+              hasReached8Cups: has8,
+              discount10Given: discountGiven,
+              ...(givenAt ? { discount10GivenAt: givenAt } : {}),
+              ...(givenBy ? { discount10GivenBy: givenBy } : {}),
+              ...(notes ? { discount10Notes: notes } : {})
             };
 
             // If there's a difference, update cloud document to aggregate state
@@ -406,6 +444,8 @@ export default function App() {
               JSON.stringify(mergedC.visitsHistory) !== JSON.stringify(cloudC.visitsHistory) ||
               mergedC.currentStamps !== cloudC.currentStamps ||
               mergedC.points !== cloudC.points ||
+              mergedC.hasReached8Cups !== cloudC.hasReached8Cups ||
+              mergedC.discount10Given !== cloudC.discount10Given ||
               mergedC.unlockedVouchers.length !== cloudC.unlockedVouchers.length
             ) {
               await dbSaveCustomer(mergedC);
@@ -1159,9 +1199,18 @@ export default function App() {
   const [editEmail, setEditEmail] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
   const [editCurrentStamps, setEditCurrentStamps] = useState(0);
+  const [editDiscount10Given, setEditDiscount10Given] = useState(false);
+  const [editHasReached8Cups, setEditHasReached8Cups] = useState(false);
   const [editSelectedClerk, setEditSelectedClerk] = useState<{ code: string; label: string; name: string; pin: string } | null>(null);
   const [editPinInput, setEditPinInput] = useState('');
   const [editError, setEditError] = useState('');
+
+  // 10% Discount Management States
+  const [pendingDiscountModalCustomer, setPendingDiscountModalCustomer] = useState<RegisteredCustomer | null>(null);
+  const [discountAuthClerkIndex, setDiscountAuthClerkIndex] = useState(0);
+  const [discountAuthPin, setDiscountAuthPin] = useState('');
+  const [discountAuthError, setDiscountAuthError] = useState('');
+  const [overlayTab, setOverlayTab] = useState<'profile' | 'card'>('profile');
 
   // Reverting Visit / Decrease Stamp State
   const [revertingCustomerFolio, setRevertingCustomerFolio] = useState<string | null>(null);
@@ -1187,6 +1236,7 @@ export default function App() {
 
   // Stamp Rewards Congratulation state
   const [congratsRewardTitle, setCongratsRewardTitle] = useState<string | null>(null);
+  const [congratsRewardCustomer, setCongratsRewardCustomer] = useState<RegisteredCustomer | null>(null);
 
   // System alert block
   const [systemBannerAlert, setSystemBannerAlert] = useState<string | null>(null);
@@ -1571,15 +1621,23 @@ export default function App() {
     let alertTrigger = false;
     let newVouchers = [...(targetCustomer.unlockedVouchers || [])];
     let resetStamps = updatedStamps;
+    let reached8 = targetCustomer.hasReached8Cups || false;
+    let discountGiven = targetCustomer.discount10Given || false;
+    let discountGivenAt = targetCustomer.discount10GivenAt;
+    let discountGivenBy = targetCustomer.discount10GivenBy;
 
-    // Highlight stamp cap
+    // Highlight stamp cap: REACHING 8 CUPS!
     if (updatedStamps >= config.stampsRequired) {
       alertTrigger = true;
-      resetStamps = 0; 
+      resetStamps = 0; // REINICIAR CONTADOR A 0!
+      reached8 = true;
+      discountGiven = false; // Se abre el apartado en su perfil para colocar si ya se le dio el 10%
+      discountGivenAt = undefined;
+      discountGivenBy = undefined;
       newVouchers.push({
         id: 'cpx_' + Date.now(),
         rewardId: 'rm_main',
-        title: config.mainRewardTitle,
+        title: config.mainRewardTitle || '10% de Descuento en Consumo',
         code: 'CUP-' + String(Math.floor(1000 + Math.random() * 9000)),
         isRedeemed: false,
         unlockedAt: new Date().toISOString()
@@ -1612,32 +1670,205 @@ export default function App() {
     };
 
     await syncSetVisits(prevV => [record, ...prevV]);
-    await syncSetLogs(prevL => [logRecord, ...prevL]);
 
     if (alertTrigger) {
-      setCongratsRewardTitle(config.mainRewardTitle);
+      const milestoneLog: ActivityLog = {
+        id: 'log_m_' + Date.now(),
+        type: 'reward_unlocked',
+        amount: 8,
+        title: `¡Meta de 8 Tazas Cumplida #${targetCustomer.folio}!`,
+        description: `El socio ${targetCustomer.name} completó 8 tazas de café. Su contador se reinició a 0 y se abrió en su perfil el apartado para colocar si ya se le dio el 10%. (Registró: ${clerkName} - ${clerkCode}).`,
+        timestamp: new Date().toISOString(),
+        clerkName,
+        clerkCode,
+        customerFolio: targetCustomer.folio
+      };
+      await syncSetLogs(prevL => [milestoneLog, logRecord, ...prevL]);
+      setCongratsRewardCustomer({
+        ...targetCustomer,
+        currentStamps: 0,
+        hasReached8Cups: true,
+        discount10Given: false
+      });
+      setCongratsRewardTitle(config.mainRewardTitle || '10% de Descuento en Consumo');
+    } else {
+      await syncSetLogs(prevL => [logRecord, ...prevL]);
     }
 
-    setSystemBannerAlert(`¡Visita registrada con éxito por ${clerkName}!`);
-    setTimeout(() => setSystemBannerAlert(null), 3000);
+    setSystemBannerAlert(
+      alertTrigger 
+        ? `¡8 Tazas completadas por ${targetCustomer.name}! Contador reiniciado a 0 y apartado del 10% habilitado.`
+        : `¡Visita registrada con éxito por ${clerkName}!`
+    );
+    setTimeout(() => setSystemBannerAlert(null), 3500);
 
     await syncSetConsumers(prev => {
       return prev.map(c => {
         if (c.folio === stampingCustomerFolio) {
-          return {
+          const updatedC: RegisteredCustomer = {
             ...c,
             currentStamps: resetStamps,
             totalStampsEarned: updatedTotal,
             points: c.points + 100,
             unlockedVouchers: newVouchers,
-            visitsHistory: [record, ...(c.visitsHistory || [])]
+            visitsHistory: [record, ...(c.visitsHistory || [])],
+            hasReached8Cups: reached8,
+            discount10Given: discountGiven,
+            ...(discountGiven && discountGivenAt ? { discount10GivenAt: discountGivenAt } : {}),
+            ...(discountGiven && discountGivenBy ? { discount10GivenBy: discountGivenBy } : {})
           };
+          if (!discountGiven) {
+            delete updatedC.discount10GivenAt;
+            delete updatedC.discount10GivenBy;
+          }
+          return updatedC;
         }
         return c;
       });
     });
 
     setStampingCustomerFolio(null);
+  };
+
+  // Función para gestionar la entrega del 10% de descuento
+  const handleToggleDiscount10Given = async (
+    customerFolio: string, 
+    given: boolean, 
+    customClerkName?: string, 
+    customClerkCode?: string
+  ) => {
+    const target = consumers.find(c => c.folio === customerFolio);
+    if (!target) return;
+
+    const matchedClerk = CLERKS[0] || { name: 'Cajero en Turno', code: 'CAJ' };
+    const clerkName = customClerkName || matchedClerk.name;
+    const clerkCode = customClerkCode || matchedClerk.code;
+    const now = new Date().toISOString();
+
+    const updatedVouchers = (target.unlockedVouchers || []).map(v => {
+      if (v.rewardId === 'rm_main' || v.title.toLowerCase().includes('10%')) {
+        const uv = {
+          ...v,
+          isRedeemed: given
+        };
+        if (given) {
+          uv.redeemedAt = now;
+        } else {
+          delete uv.redeemedAt;
+        }
+        return uv;
+      }
+      return v;
+    });
+
+    // Al colocar que ya se le dio el 10%, comienza el contador de nuevo y se registra la primera taza
+    const newStamps = given ? 1 : 0;
+    const updatedTotal = given ? (target.totalStampsEarned || 0) + 1 : target.totalStampsEarned;
+    const updatedPoints = given ? (target.points || 0) + 100 : target.points;
+
+    // Registro de visita para la primera taza del nuevo ciclo
+    const firstCupVisit: VisitRecord = {
+      id: `v_${Date.now()}_${target.folio}_c1`,
+      timestamp: now,
+      stampsAdded: 1,
+      clerkName,
+      clerkCode,
+      customerFolio: target.folio,
+      customerName: target.name
+    };
+
+    if (given) {
+      await syncSetVisits(prevV => [firstCupVisit, ...prevV]);
+    }
+
+    const discountLog: ActivityLog = {
+      id: 'log_disc_' + Date.now(),
+      type: given ? 'voucher_redeemed' : 'customer_edited',
+      amount: 1,
+      title: given ? `10% Descuento Entregado #${customerFolio}` : `10% Descuento Pendiente #${customerFolio}`,
+      description: given
+        ? `Se confirmó y entregó el 10% de descuento a ${target.name}. Se inició un nuevo ciclo de fidelidad y se registró su 1ª taza de café. (Autorizó: ${clerkName} - ${clerkCode}).`
+        : `Se restableció a pendiente el estatus del 10% de descuento de ${target.name}. Contador restablecido a 0. (Modificó: ${clerkName} - ${clerkCode}).`,
+      timestamp: now,
+      clerkName,
+      clerkCode,
+      customerFolio
+    };
+
+    if (given) {
+      const firstCupLog: ActivityLog = {
+        id: 'log_c1_' + (Date.now() + 5),
+        type: 'stamp_added',
+        amount: 1,
+        title: `Sello Acreditado #${target.folio} (1ª Taza Nuevo Ciclo)`,
+        description: `Inicio de nuevo ciclo: Se registró la 1ª taza de café para el socio ${target.name} tras canjear su 10% de descuento. (Encargado: ${clerkName} - ${clerkCode}).`,
+        timestamp: new Date(Date.now() + 50).toISOString(),
+        clerkName,
+        clerkCode,
+        customerFolio: target.folio,
+        stampNumber: 1
+      };
+      await syncSetLogs(prev => [firstCupLog, discountLog, ...prev]);
+    } else {
+      await syncSetLogs(prev => [discountLog, ...prev]);
+    }
+
+    await syncSetConsumers(prev => prev.map(c => {
+      if (c.folio === customerFolio) {
+        const updatedC: RegisteredCustomer = {
+          ...c,
+          currentStamps: newStamps,
+          totalStampsEarned: updatedTotal,
+          points: updatedPoints,
+          visitsHistory: given ? [firstCupVisit, ...(c.visitsHistory || [])] : (c.visitsHistory || []),
+          hasReached8Cups: true,
+          discount10Given: given,
+          unlockedVouchers: updatedVouchers,
+          ...(given ? {
+            discount10GivenAt: now,
+            discount10GivenBy: `${clerkName} (${clerkCode})`
+          } : {})
+        };
+        if (!given) {
+          delete updatedC.discount10GivenAt;
+          delete updatedC.discount10GivenBy;
+        }
+        return updatedC;
+      }
+      return c;
+    }));
+
+    setSelectedOverlayCustomer(prev => {
+      if (prev && prev.folio === customerFolio) {
+        const updatedC: RegisteredCustomer = {
+          ...prev,
+          currentStamps: newStamps,
+          totalStampsEarned: updatedTotal,
+          points: updatedPoints,
+          visitsHistory: given ? [firstCupVisit, ...(prev.visitsHistory || [])] : (prev.visitsHistory || []),
+          hasReached8Cups: true,
+          discount10Given: given,
+          unlockedVouchers: updatedVouchers,
+          ...(given ? {
+            discount10GivenAt: now,
+            discount10GivenBy: `${clerkName} (${clerkCode})`
+          } : {})
+        };
+        if (!given) {
+          delete updatedC.discount10GivenAt;
+          delete updatedC.discount10GivenBy;
+        }
+        return updatedC;
+      }
+      return prev;
+    });
+
+    setSystemBannerAlert(
+      given 
+        ? `¡10% entregado a ${target.name}! Contador reiniciado y 1ª taza registrada con éxito.` 
+        : `¡10% de descuento establecido como PENDIENTE para ${target.name}!`
+    );
+    setTimeout(() => setSystemBannerAlert(null), 3500);
   };
 
   const handleConfirmStampWithPin = () => {
@@ -1785,6 +2016,8 @@ export default function App() {
     setEditEmail(customer.email);
     setEditBirthday(customer.birthday);
     setEditCurrentStamps(customer.currentStamps);
+    setEditDiscount10Given(customer.discount10Given || false);
+    setEditHasReached8Cups(Boolean(customer.hasReached8Cups));
     setEditSelectedClerk(null);
     setEditPinInput('');
     setEditError('');
@@ -1866,13 +2099,51 @@ export default function App() {
       return;
     }
 
-    const stampDiff = editCurrentStamps - editingCustomer.currentStamps;
+    let finalStamps = editCurrentStamps;
+    let finalReached8 = editHasReached8Cups || editingCustomer.hasReached8Cups || false;
+    let finalDiscountGiven = editDiscount10Given;
+    let finalDiscountAt = editingCustomer.discount10GivenAt;
+    let finalDiscountBy = editingCustomer.discount10GivenBy;
+
+    // Si se establecen 8 tazas, el contador se reinicia a 0 y se marca la meta de 8 tazas
+    if (editCurrentStamps >= 8) {
+      finalStamps = 0;
+      finalReached8 = true;
+    }
+
+    let additionalVisitRecord: VisitRecord | null = null;
+    if (finalDiscountGiven && !editingCustomer.discount10Given) {
+      finalDiscountAt = new Date().toISOString();
+      finalDiscountBy = `${matchedClerk.name} (${matchedClerk.code})`;
+      if (finalStamps === 0) {
+        finalStamps = 1;
+        additionalVisitRecord = {
+          id: `v_${Date.now()}_${formattedFolio}_c1`,
+          timestamp: new Date().toISOString(),
+          stampsAdded: 1,
+          clerkName: matchedClerk.name,
+          clerkCode: matchedClerk.code,
+          customerFolio: formattedFolio,
+          customerName: editName
+        };
+      }
+    } else if (!finalDiscountGiven) {
+      finalDiscountAt = undefined;
+      finalDiscountBy = undefined;
+    }
+
+    const stampDiff = finalStamps - editingCustomer.currentStamps;
+    const isNew8Milestone = finalReached8 && !editingCustomer.hasReached8Cups;
     const logRecord: ActivityLog = {
       id: 'log_' + Date.now(),
-      type: 'customer_edited',
-      amount: stampDiff,
-      title: `Edición de Cliente #${formattedFolio}`,
-      description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${formattedFolio}. Tazas de café de: ${editingCustomer.currentStamps} a ${editCurrentStamps}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
+      type: isNew8Milestone ? 'reward_unlocked' : (finalDiscountGiven !== editingCustomer.discount10Given && finalDiscountGiven ? 'voucher_redeemed' : 'customer_edited'),
+      amount: isNew8Milestone ? 8 : stampDiff,
+      title: isNew8Milestone 
+        ? `¡Meta de 8 Tazas Cumplida #${formattedFolio}!`
+        : (finalDiscountGiven !== editingCustomer.discount10Given && finalDiscountGiven)
+        ? `10% Descuento Entregado #${formattedFolio}`
+        : `Edición de Cliente #${formattedFolio}`,
+      description: `Modificación de datos del socio ${editingCustomer.name}. Tarjeta de folio #${editingCustomer.folio} a #${formattedFolio}. Tazas: ${finalStamps}/8 ${finalReached8 ? '(Tazas Doradas de Lealtad)' : ''}. 10% de descuento: ${finalDiscountGiven ? 'Entregado (1ª Taza iniciada)' : 'Pendiente'}. (Autorizó: ${matchedClerk.name} - ${matchedClerk.code}).`,
       timestamp: new Date().toISOString(),
       clerkName: matchedClerk.name,
       clerkCode: matchedClerk.code,
@@ -1880,22 +2151,51 @@ export default function App() {
     };
 
     runActionWithProgress('Guardando Cambios del Cliente...', async () => {
-      await syncSetLogs(prevL => [logRecord, ...prevL]);
+      if (additionalVisitRecord) {
+        const firstCupLog: ActivityLog = {
+          id: 'log_c1_' + (Date.now() + 5),
+          type: 'stamp_added',
+          amount: 1,
+          title: `Sello Acreditado #${formattedFolio} (1ª Taza Nuevo Ciclo)`,
+          description: `Inicio de nuevo ciclo: Se registró la 1ª taza de café para el socio ${editName} tras canjear su 10% de descuento. (Encargado: ${matchedClerk.name} - ${matchedClerk.code}).`,
+          timestamp: new Date(Date.now() + 50).toISOString(),
+          clerkName: matchedClerk.name,
+          clerkCode: matchedClerk.code,
+          customerFolio: formattedFolio,
+          stampNumber: 1
+        };
+        await syncSetLogs(prevL => [firstCupLog, logRecord, ...prevL]);
+        await syncSetVisits(prevV => [additionalVisitRecord!, ...prevV]);
+      } else {
+        await syncSetLogs(prevL => [logRecord, ...prevL]);
+      }
 
       // Update state (replaces any other customer with that folio to avoid duplication)
       await syncSetConsumers(prev => {
         const filtered = prev.filter(c => c.folio !== formattedFolio || c.folio === editingCustomer.folio);
         return filtered.map(c => {
           if (c.folio === editingCustomer.folio) {
-            return {
+            const updatedC: RegisteredCustomer = {
               ...c,
               folio: formattedFolio,
               name: editName,
               phone: editPhone,
               email: editEmail,
               birthday: editBirthday,
-              currentStamps: editCurrentStamps
+              currentStamps: finalStamps,
+              hasReached8Cups: finalReached8,
+              discount10Given: finalDiscountGiven,
+              totalStampsEarned: additionalVisitRecord ? (c.totalStampsEarned || 0) + 1 : c.totalStampsEarned,
+              points: additionalVisitRecord ? (c.points || 0) + 100 : c.points,
+              visitsHistory: additionalVisitRecord ? [additionalVisitRecord, ...(c.visitsHistory || [])] : (c.visitsHistory || []),
+              ...(finalDiscountGiven && finalDiscountAt ? { discount10GivenAt: finalDiscountAt } : {}),
+              ...(finalDiscountGiven && finalDiscountBy ? { discount10GivenBy: finalDiscountBy } : {})
             };
+            if (!finalDiscountGiven) {
+              delete updatedC.discount10GivenAt;
+              delete updatedC.discount10GivenBy;
+            }
+            return updatedC;
           }
           return c;
         });
@@ -2487,21 +2787,49 @@ export default function App() {
               <div className="w-16 h-16 bg-teal-50 text-[#149b8f] rounded-full flex items-center justify-center mx-auto text-3xl">
                 ☕🎉
               </div>
-              <h3 className="text-2xl font-serif font-black text-slate-900">¡Premio Alcanzado!</h3>
+              <h3 className="text-2xl font-serif font-black text-slate-900">¡Meta de 8 Tazas Alcanzada!</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                El cliente ha acumulado exitosamente las tazas de consumo requeridas. Se ha generado un cupón electrónico canjeable por un:
+                El socio {congratsRewardCustomer ? <strong className="text-slate-800">{congratsRewardCustomer.name} (#{congratsRewardCustomer.folio})</strong> : 'registrado'} ha acumulado exitosamente sus 8 tazas de café.
               </p>
-              <div className="p-4 bg-teal-50/50 border border-teal-200/50 rounded-2xl">
-                <span className="text-[10px] text-[#149b8f] font-mono tracking-widest font-black uppercase">Cortesia Otorgada</span>
-                <p className="text-sm font-black text-slate-800 mt-1">{congratsRewardTitle}</p>
+              
+              <div className="p-4 bg-teal-50/70 border border-teal-200/70 rounded-2xl text-left space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#149b8f] font-mono tracking-widest font-black uppercase">Beneficio Desbloqueado</span>
+                  <span className="text-[10px] font-bold bg-teal-100 text-[#149b8f] px-2 py-0.5 rounded-full">Contador Reiniciado a 0/8</span>
+                </div>
+                <p className="text-base font-black text-slate-800">{congratsRewardTitle}</p>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  ✓ El contador de tazas se ha <strong>reiniciado a 0</strong> para un nuevo ciclo.<br />
+                  ✓ En el perfil del socio (apartado de clientes) se ha abierto el apartado para colocar si ya se le dio el 10%.
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setCongratsRewardTitle(null)}
-                className="w-full py-3 bg-[#149b8f] hover:bg-[#11847a] text-white font-sans font-bold text-sm rounded-xl cursor-pointer shadow-md shadow-teal-700/20 active:scale-95 transition-all text-center"
-              >
-                Cerrar e imprimir cupón
-              </button>
+
+              <div className="space-y-2 pt-1 font-sans">
+                {congratsRewardCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleDiscount10Given(congratsRewardCustomer.folio, true);
+                      setCongratsRewardTitle(null);
+                      setCongratsRewardCustomer(null);
+                    }}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl cursor-pointer shadow-md shadow-emerald-700/20 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5"
+                  >
+                    <Check size={15} className="stroke-[3]" />
+                    <span>Marcar 10% como Entregado Ahora Mismo</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCongratsRewardTitle(null);
+                    setCongratsRewardCustomer(null);
+                  }}
+                  className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer active:scale-95 transition-all text-center"
+                >
+                  Entregar Después (Gestionar en su Perfil)
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
@@ -2618,9 +2946,67 @@ export default function App() {
                       {[0, 1, 2, 3, 4, 5, 6, 7].map(st => (
                         <option key={st} value={st}>{st} / 8 tazas</option>
                       ))}
+                      <option value={8}>8 / 8 tazas (¡Reinicia a 0 y abre 10%!)</option>
                     </select>
                   </div>
                 </div>
+
+                {editCurrentStamps === 8 && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 font-medium">
+                    ☕ <strong>Meta cumplida:</strong> Al guardar con 8 tazas, el contador de este socio se reiniciará automáticamente a <strong>0 tazas</strong> y se habilitará el apartado del 10% de descuento.
+                  </div>
+                )}
+
+                {/* APARTADO DE 10% DE DESCUENTO EN PERFIL (SOLO PARA QUIENES CUMPLIERON 8 TAZAS) */}
+                {Boolean(editHasReached8Cups || editingCustomer.hasReached8Cups || editCurrentStamps === 8) && (
+                  <div className={`p-3.5 rounded-2xl border transition-all ${
+                    editDiscount10Given
+                      ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                      : 'bg-amber-50/70 border-amber-300 text-amber-950 shadow-sm'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-xs flex items-center gap-1.5 font-serif">
+                        <Gift size={14} className={editDiscount10Given ? "text-emerald-600" : "text-amber-600"} />
+                        <span>Apartado: 10% de Descuento (8 Tazas)</span>
+                      </span>
+                      <span className={`text-[9px] font-mono font-black uppercase px-2 py-0.5 rounded-full border ${
+                        editDiscount10Given ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                      }`}>
+                        {editDiscount10Given ? '✓ Entregado' : '⏳ Pendiente'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 pt-1 font-sans">
+                      <p className="text-[11px] text-slate-600 leading-tight">
+                        Coloca si ya se le aplicó el beneficio del 10% de descuento en su cuenta:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditDiscount10Given(false)}
+                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                            !editDiscount10Given
+                              ? 'bg-amber-200/90 text-amber-950 border-amber-400 shadow-sm font-black'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          ⏳ Pendiente (No entregado)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditDiscount10Given(true)}
+                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                            editDiscount10Given
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm font-black'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          ✓ Ya se le dio el 10%
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <label className="text-slate-500 font-bold uppercase tracking-wider block">Nombre Completo *</label>
@@ -2834,72 +3220,447 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* INDIVIDUAL FLIPPABLE DIGITAL CARD PREVIEW OVERLAY */}
+      {/* INDIVIDUAL FLIPPABLE DIGITAL CARD PREVIEW OVERLAY / CUSTOMER PROFILE */}
       <AnimatePresence>
         {selectedOverlayCustomer && (
-          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm overflow-y-auto">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md p-2 flex flex-col justify-center items-center gap-4 text-center"
+              className="w-full max-w-lg my-6 flex flex-col justify-center items-center gap-3 text-center"
             >
+              {/* Top modal header and tab switch */}
               <div className="flex justify-between w-full items-center text-white px-2">
-                <span className="text-sm font-serif font-black flex items-center gap-1">
-                  <Coffee size={16} /> Tarjeta de Fidelidad Digital
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedOverlayCustomer(null)}
-                  className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center font-bold text-sm cursor-pointer"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-black bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-lg">
+                    #{selectedOverlayCustomer.folio}
+                  </span>
+                  <h3 className="text-sm font-serif font-black text-white truncate max-w-[200px]">
+                    {selectedOverlayCustomer.name}
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Segmented view switch */}
+                  <div className="bg-white/10 p-0.5 rounded-xl flex items-center border border-white/10 text-[10px] font-sans font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setOverlayTab('profile')}
+                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                        overlayTab === 'profile' ? 'bg-white text-slate-900 shadow-sm' : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <User size={11} />
+                      <span>Perfil del Socio</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOverlayTab('card')}
+                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                        overlayTab === 'card' ? 'bg-white text-slate-900 shadow-sm' : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <Ticket size={11} />
+                      <span>Tarjeta 3D</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOverlayCustomer(null)}
+                    className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center font-bold text-sm cursor-pointer transition"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
-              {/* Native digital cards emulator card */}
-              <CustomerCard 
-                session={{
-                  id: selectedOverlayCustomer.folio,
-                  folio: selectedOverlayCustomer.folio,
-                  name: selectedOverlayCustomer.name,
-                  email: selectedOverlayCustomer.email,
-                  phone: selectedOverlayCustomer.phone,
-                  birthday: selectedOverlayCustomer.birthday,
-                  currentStamps: selectedOverlayCustomer.currentStamps,
-                  totalStampsEarned: selectedOverlayCustomer.totalStampsEarned,
-                  points: selectedOverlayCustomer.points,
-                  unlockedVouchers: selectedOverlayCustomer.unlockedVouchers || []
-                }}
-                config={config}
-                onReset={() => {
-                  syncSetConsumers(prev => prev.map(c => {
-                    if (c.folio === selectedOverlayCustomer.folio) {
-                      return { ...c, currentStamps: 0, points: 0, unlockedVouchers: [] };
-                    }
-                    return c;
-                  }));
-                  setSelectedOverlayCustomer(prev => prev ? { ...prev, currentStamps: 0, points: 0, unlockedVouchers: [] } : null);
-                  
-                  // Reset Log
-                  const logRecord: ActivityLog = {
-                    id: 'log_' + Date.now(),
-                    type: 'stamp_added',
-                    amount: 0,
-                    title: `Tarjeta Reseteada #${selectedOverlayCustomer.folio}`,
-                    description: `Se reiniciaron los sellos acumulados de ${selectedOverlayCustomer.name}.`,
-                    timestamp: new Date().toISOString(),
-                    clerkName: 'Administrador',
-                    clerkCode: 'GER',
-                    customerFolio: selectedOverlayCustomer.folio
-                  };
-                  syncSetLogs(prevL => [logRecord, ...prevL]);
-                }}
-              />
+              {overlayTab === 'card' ? (
+                <div className="w-full space-y-3">
+                  <CustomerCard 
+                    session={{
+                      id: selectedOverlayCustomer.folio,
+                      folio: selectedOverlayCustomer.folio,
+                      name: selectedOverlayCustomer.name,
+                      email: selectedOverlayCustomer.email,
+                      phone: selectedOverlayCustomer.phone,
+                      birthday: selectedOverlayCustomer.birthday,
+                      currentStamps: selectedOverlayCustomer.currentStamps,
+                      totalStampsEarned: selectedOverlayCustomer.totalStampsEarned,
+                      points: selectedOverlayCustomer.points,
+                      unlockedVouchers: selectedOverlayCustomer.unlockedVouchers || [],
+                      hasReached8Cups: selectedOverlayCustomer.hasReached8Cups,
+                      discount10Given: selectedOverlayCustomer.discount10Given,
+                      discount10GivenAt: selectedOverlayCustomer.discount10GivenAt,
+                      discount10GivenBy: selectedOverlayCustomer.discount10GivenBy
+                    }}
+                    config={config}
+                    onReset={() => {
+                      syncSetConsumers(prev => prev.map(c => {
+                        if (c.folio === selectedOverlayCustomer.folio) {
+                          return { ...c, currentStamps: 0, points: 0, unlockedVouchers: [] };
+                        }
+                        return c;
+                      }));
+                      setSelectedOverlayCustomer(prev => prev ? { ...prev, currentStamps: 0, points: 0, unlockedVouchers: [] } : null);
+                      
+                      const logRecord: ActivityLog = {
+                        id: 'log_' + Date.now(),
+                        type: 'stamp_added',
+                        amount: 0,
+                        title: `Tarjeta Reseteada #${selectedOverlayCustomer.folio}`,
+                        description: `Se reiniciaron los sellos acumulados de ${selectedOverlayCustomer.name}.`,
+                        timestamp: new Date().toISOString(),
+                        clerkName: 'Administrador',
+                        clerkCode: 'GER',
+                        customerFolio: selectedOverlayCustomer.folio
+                      };
+                      syncSetLogs(prevL => [logRecord, ...prevL]);
+                    }}
+                  />
+                  <p className="text-xs text-white/55 font-sans">
+                    Toca la tarjeta para ver el reverso con código de barras para escanear en barra.
+                  </p>
+                </div>
+              ) : (
+                /* DETAILED CUSTOMER PROFILE VIEW */
+                <div className="w-full bg-white rounded-3xl p-6 shadow-2xl text-left space-y-5 border border-slate-100 max-h-[80vh] overflow-y-auto">
+                  {/* Member summary banner */}
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-black bg-teal-50 border border-teal-200 text-[#149b8f] px-2.5 py-0.5 rounded-xl">
+                          Folio #{selectedOverlayCustomer.folio}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-sans font-bold">
+                          🎂 {selectedOverlayCustomer.birthday ? new Date(selectedOverlayCustomer.birthday + 'T00:00:00').toLocaleDateString('es-MX', {day:'numeric', month:'long'}) : 'Sin fecha'}
+                        </span>
+                      </div>
+                      <h4 className="text-xl font-serif font-black text-slate-900 leading-tight">
+                        {selectedOverlayCustomer.name}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-sans flex items-center gap-3 pt-0.5">
+                        <span className="flex items-center gap-1"><Phone size={12} className="text-slate-400" /> {selectedOverlayCustomer.phone}</span>
+                        <span className="flex items-center gap-1 truncate"><Mail size={12} className="text-slate-400" /> {selectedOverlayCustomer.email}</span>
+                      </p>
+                    </div>
 
-              <p className="text-xs text-white/55 font-sans">
-                Toca la tarjeta para ver el código QR trasero para acreditar consumos en caja.
-              </p>
+                    <div className="text-right shrink-0">
+                      <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 block">Puntos</span>
+                      <span className="text-lg font-mono font-black text-[#149b8f]">{selectedOverlayCustomer.points} pts</span>
+                    </div>
+                  </div>
+
+                  {/* Stamp progress & cycle restart info */}
+                  <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl space-y-2.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 font-sans tracking-wider block">Ciclo de Consumo Actual</span>
+                        <span className="font-mono font-bold text-slate-800 text-sm">
+                          {selectedOverlayCustomer.currentStamps} de 8 tazas
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 font-sans tracking-wider block">Total Histórico</span>
+                        <span className="font-mono font-bold text-teal-700 text-sm">
+                          {selectedOverlayCustomer.totalStampsEarned} tazas acumuladas
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 8 Coffee cups display */}
+                    <div className={`flex gap-1.5 justify-between p-2.5 rounded-xl border transition-all ${
+                      selectedOverlayCustomer.hasReached8Cups
+                        ? 'bg-gradient-to-r from-amber-100/70 via-yellow-100/60 to-amber-100/70 border-amber-300 shadow-sm'
+                        : 'bg-white border-slate-200/60'
+                    }`}>
+                      {Array.from({ length: 8 }).map((_, stIdx) => {
+                        const isGold = Boolean(selectedOverlayCustomer.hasReached8Cups);
+                        const isStamped = (isGold && !selectedOverlayCustomer.discount10Given) || (stIdx < selectedOverlayCustomer.currentStamps);
+                        return (
+                          <div 
+                            key={stIdx} 
+                            className={`flex-1 h-8 rounded-lg flex items-center justify-center transition border ${
+                              isStamped
+                                ? (isGold
+                                    ? 'bg-gradient-to-br from-yellow-300 via-amber-400 to-amber-500 border-amber-400 text-amber-950 shadow-sm'
+                                    : 'bg-teal-50 border-teal-200 text-[#149b8f]')
+                                : 'bg-slate-50 border-slate-200 text-slate-300'
+                            }`}
+                            title={isStamped ? `Taza ${stIdx + 1} de 8 (Registrada)` : `Taza ${stIdx + 1} de 8`}
+                          >
+                            <Coffee size={14} className={isStamped ? (isGold ? 'fill-amber-900/30 text-amber-950 stroke-[2.5]' : 'fill-teal-500/10 stroke-[2.5]') : 'stroke-[2]'} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    {selectedOverlayCustomer.hasReached8Cups && (
+                      <div className="bg-amber-100/90 border border-amber-300/80 p-2.5 rounded-xl flex items-center gap-2 text-amber-950 text-xs font-medium">
+                        <Sparkles size={16} className="text-amber-600 fill-amber-500 shrink-0" />
+                        <span>
+                          {selectedOverlayCustomer.discount10Given
+                            ? <span><strong>¡Nuevo ciclo en curso!</strong> 10% entregado. Se registró la 1ª taza de café (avance: {selectedOverlayCustomer.currentStamps}/8 tazas).</span>
+                            : <span><strong>¡Tazas Doradas de Lealtad!</strong> El socio completó sus 8 tazas y sus tazas pasaron a dorado. Pendiente entrega del 10%.</span>}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* APARTADO DESTACADO: 10% DE DESCUENTO POR 8 TAZAS (SOLO PARA QUIENES CUMPLIERON 8 TAZAS) */}
+                  {Boolean(selectedOverlayCustomer.hasReached8Cups) && (
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      selectedOverlayCustomer.discount10Given
+                        ? 'bg-emerald-50/70 border-emerald-250 text-emerald-950'
+                        : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-300 text-amber-950 shadow-sm'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${
+                            selectedOverlayCustomer.discount10Given 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            <Gift size={16} />
+                          </div>
+                          <div>
+                            <h5 className="font-serif font-black text-sm text-slate-900 leading-tight">
+                              Apartado: 10% de Descuento por 8 Tazas
+                            </h5>
+                            <span className="text-[10px] text-slate-400 font-sans">
+                              Control de entrega del beneficio en caja
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className={`text-[10px] font-mono font-black uppercase px-2.5 py-1 rounded-full border ${
+                          selectedOverlayCustomer.discount10Given
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                        }`}>
+                          {selectedOverlayCustomer.discount10Given
+                            ? '✓ 10% Entregado'
+                            : '⏳ Pendiente'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 pt-1">
+                        <div className="p-3 bg-white/80 rounded-xl border border-slate-200/60 text-xs font-sans space-y-1">
+                          <p className="font-bold text-slate-800">
+                            ¿Ya se le dio el 10% de descuento en su consumo?
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {selectedOverlayCustomer.discount10Given ? (
+                              <span>
+                                ✓ Beneficio registrado como <strong className="text-emerald-700">ENTREGADO</strong>
+                                {selectedOverlayCustomer.discount10GivenAt ? ` el ${new Date(selectedOverlayCustomer.discount10GivenAt).toLocaleDateString('es-MX', {day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'})}` : ''}
+                                {selectedOverlayCustomer.discount10GivenBy ? ` por ${selectedOverlayCustomer.discount10GivenBy}` : ''}.
+                              </span>
+                            ) : (
+                              <span>
+                                ⏳ Beneficio <strong className="text-amber-800">PENDIENTE DE ENTREGA</strong>. El socio ya completó sus 8 tazas y su contador se reinició.
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        {/* Interactive toggle buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-1 font-sans">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleDiscount10Given(selectedOverlayCustomer.folio, false)}
+                            className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                              !selectedOverlayCustomer.discount10Given
+                                ? 'bg-amber-200/90 text-amber-950 border-amber-400 font-black shadow-sm'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>⏳ Marcar Pendiente</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleDiscount10Given(selectedOverlayCustomer.folio, true)}
+                            className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                              selectedOverlayCustomer.discount10Given
+                                ? 'bg-emerald-600 text-white border-emerald-600 font-black shadow-sm'
+                                : 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500'
+                            }`}
+                          >
+                            <Check size={14} className="stroke-[3]" />
+                            <span>✓ Ya se le dio el 10%</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent visits history */}
+                  <div className="space-y-2 font-sans pt-1">
+                    <h5 className="text-xs font-serif font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar size={13} className="text-slate-400" />
+                      Historial Reciente de Visitas
+                    </h5>
+
+                    {(!selectedOverlayCustomer.visitsHistory || selectedOverlayCustomer.visitsHistory.length === 0) ? (
+                      <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        No hay visitas registradas para este cliente aún.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {selectedOverlayCustomer.visitsHistory.slice(0, 5).map(v => (
+                          <div key={v.id} className="p-2.5 bg-slate-50 border border-slate-150 rounded-xl flex items-center justify-between text-xs">
+                            <div>
+                              <span className="font-bold text-slate-800 block">
+                                +{v.stampsAdded} taza acreditada
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(v.timestamp).toLocaleDateString('es-MX', {day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'})}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">
+                              {v.clerkName || v.clerkCode}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions footer */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditCustomer(selectedOverlayCustomer)}
+                      className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 font-sans"
+                    >
+                      <Pencil size={13} />
+                      <span>Editar Datos del Socio</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOverlayCustomer(null)}
+                      className="py-2.5 px-5 bg-[#149b8f] hover:bg-[#11847a] text-white text-xs font-bold rounded-xl transition cursor-pointer font-sans shadow-sm"
+                    >
+                      Cerrar Perfil
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL PARA AUTORIZAR / MARCAR ENTREGA DEL 10% DE DESCUENTO */}
+      <AnimatePresence>
+        {pendingDiscountModalCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-left space-y-4 border border-slate-100"
+            >
+              <div>
+                <span className="text-[9px] font-black tracking-widest text-[#149b8f] uppercase font-sans">Control de Recompensa</span>
+                <h3 className="text-base font-serif font-black text-slate-900">¿Entregar 10% de Descuento?</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Confirmar que se le otorgó el 10% en consumo a <strong className="text-slate-800">{pendingDiscountModalCustomer.name} (#{pendingDiscountModalCustomer.folio})</strong>.
+                </p>
+              </div>
+
+              {discountAuthError && (
+                <p className="text-[10px] text-red-600 bg-red-50 border border-red-100 p-2 rounded-xl text-center font-bold font-sans">
+                  {discountAuthError}
+                </p>
+              )}
+
+              <div className="space-y-3 font-sans text-xs">
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">
+                    Encargado que autoriza la entrega *
+                  </label>
+                  <select
+                    value={discountAuthClerkIndex}
+                    onChange={(e) => setDiscountAuthClerkIndex(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-[#149b8f]"
+                  >
+                    {CLERKS.map((clk, idx) => (
+                      <option key={clk.code} value={idx}>
+                        {clk.name} ({clk.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-500 font-bold uppercase tracking-wider block text-[10px]">
+                    Clave PIN de Encargado (Opcional)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Introduce PIN confidencial..."
+                    value={discountAuthPin}
+                    onChange={(e) => {
+                      setDiscountAuthPin(e.target.value);
+                      setDiscountAuthError('');
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono text-center tracking-widest outline-none focus:border-[#149b8f]"
+                  />
+                </div>
+
+                <div className="p-3 bg-teal-50 border border-teal-200/60 rounded-xl text-[10px] text-teal-900 leading-tight space-y-1">
+                  <p className="font-bold flex items-center gap-1">
+                    <CheckCircle2 size={12} className="text-[#149b8f]" />
+                    <span>Entrega de beneficio e inicio de nuevo ciclo</span>
+                  </p>
+                  <p>
+                    Al confirmar, se asentará la entrega del 10% de descuento, el contador comenzará de nuevo y se registrará automáticamente su 1ª taza de café del nuevo ciclo.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingDiscountModalCustomer(null);
+                      setDiscountAuthPin('');
+                      setDiscountAuthError('');
+                    }}
+                    className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const selectedClerk = CLERKS[discountAuthClerkIndex] || CLERKS[0];
+                      if (discountAuthPin.trim()) {
+                        const entered = discountAuthPin.trim().toLowerCase();
+                        if (selectedClerk.pin.toLowerCase() !== entered && entered !== 'bistro2026') {
+                          setDiscountAuthError('La clave PIN ingresada es incorrecta.');
+                          return;
+                        }
+                      }
+                      await handleToggleDiscount10Given(
+                        pendingDiscountModalCustomer.folio, 
+                        true, 
+                        selectedClerk.name, 
+                        selectedClerk.code
+                      );
+                      setPendingDiscountModalCustomer(null);
+                      setDiscountAuthPin('');
+                      setDiscountAuthError('');
+                    }}
+                    className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl cursor-pointer text-center shadow-md shadow-emerald-700/20"
+                  >
+                    Confirmar Entrega
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
@@ -3515,32 +4276,134 @@ export default function App() {
 
                           {/* Coffee Stamps Progress Tracker Cups Row matches photos exactly! */}
                           <div className="border-t border-slate-100/80 pt-3 flex flex-col gap-1.5">
-                            <div className="flex justify-between items-center text-[10px] text-slate-400 tracking-wider uppercase font-black">
-                              <span>Sello de visita</span>
-                              <span className="text-[#149b8f] font-bold font-mono">{cust.currentStamps}/8 tazas</span>
+                            <div className="flex justify-between items-center text-[10px] tracking-wider uppercase font-black">
+                              <span className="text-slate-400">Sello de visita</span>
+                              {cust.hasReached8Cups ? (
+                                <span className="text-amber-700 font-bold font-mono flex items-center gap-1">
+                                  <Sparkles size={11} className="text-amber-500 fill-amber-400" />
+                                  <span>{cust.currentStamps}/8 tazas • Doradas</span>
+                                </span>
+                              ) : (
+                                <span className="text-[#149b8f] font-bold font-mono">{cust.currentStamps}/8 tazas</span>
+                              )}
                             </div>
 
                             {/* Aligned Coffee Stamps Row (8 cups count) */}
-                            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/50 p-2.5 rounded-2xl shadow-inner">
+                            <div className={`flex items-center gap-2 p-2.5 rounded-2xl transition-all ${
+                              cust.hasReached8Cups 
+                                ? 'bg-gradient-to-r from-amber-500/15 via-yellow-400/20 to-amber-500/15 border-2 border-amber-400 shadow-sm'
+                                : 'bg-slate-50 border border-slate-200/50 shadow-inner'
+                            }`}>
                               <div className="flex-1 flex gap-1.5 justify-between">
                                 {Array.from({ length: 8 }).map((_, stIdx) => {
-                                  const isFilledStam = stIdx < cust.currentStamps;
+                                  const isGold = Boolean(cust.hasReached8Cups);
+                                  const isStamped = (isGold && !cust.discount10Given) || (stIdx < cust.currentStamps);
                                   return (
                                     <div 
                                       key={stIdx} 
                                       className={`w-7 h-7 rounded-full flex items-center justify-center transition border ${
-                                        isFilledStam 
-                                          ? 'bg-teal-50 border-teal-200 text-[#149b8f]' 
+                                        isStamped
+                                          ? (isGold
+                                              ? 'bg-gradient-to-br from-yellow-300 via-amber-400 to-amber-500 border-amber-400 text-amber-950 shadow-[0_2px_6px_rgba(245,158,11,0.35)]'
+                                              : 'bg-teal-50 border-teal-200 text-[#149b8f]')
                                           : 'bg-white border-slate-200 text-slate-300'
                                       }`}
+                                      title={isStamped ? `Taza #${stIdx + 1} (Registrada)` : `Taza #${stIdx + 1}`}
                                     >
-                                      <Coffee size={14} className={isFilledStam ? 'fill-teal-500/10 stroke-[2.5]' : 'stroke-[2]'} />
+                                      <Coffee size={14} className={isStamped ? (isGold ? 'fill-amber-900/30 text-amber-950 stroke-[2.5]' : 'fill-teal-500/10 stroke-[2.5]') : 'stroke-[2]'} />
                                     </div>
                                   );
                                 })}
                               </div>
                             </div>
+
+                            {Boolean(cust.hasReached8Cups) && (
+                              <div className="flex items-center justify-between text-[10px] bg-amber-100/90 text-amber-950 px-2.5 py-1 rounded-xl border border-amber-300/80 font-sans font-bold">
+                                <span className="flex items-center gap-1.5">
+                                  <Sparkles size={12} className="text-amber-600 fill-amber-500 shrink-0" />
+                                  <span>{cust.discount10Given ? 'Nuevo Ciclo Activo (1ª Taza)' : 'Tazas Doradas de Lealtad'}</span>
+                                </span>
+                                <span className="font-mono text-amber-800 text-[9px] uppercase tracking-wider">
+                                  {cust.discount10Given ? `${cust.currentStamps}/8 Tazas` : '8 Tazas Cumplidas'}
+                                </span>
+                              </div>
+                            )}
                           </div>
+
+                          {/* APARTADO DE 10% DE DESCUENTO (SOLO PARA QUIENES CUMPLIERON LA META DE 8 TAZAS) */}
+                          {Boolean(cust.hasReached8Cups) && (
+                            <div className={`rounded-2xl p-3.5 border transition-all ${
+                              cust.discount10Given
+                                ? 'bg-emerald-50/70 border-emerald-250 text-emerald-950 shadow-sm'
+                                : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-300 text-amber-950 shadow-sm'
+                            }`}>
+                              <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                                <div className="flex items-center gap-1.5 font-bold text-xs">
+                                  <Gift size={15} className={cust.discount10Given ? "text-emerald-600 shrink-0" : "text-amber-600 shrink-0"} />
+                                  <span className="font-serif font-black tracking-tight">Apartado: 10% de Descuento</span>
+                                </div>
+                                <span className={`text-[9.5px] font-mono font-black uppercase px-2 py-0.5 rounded-full border ${
+                                  cust.discount10Given
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                }`}>
+                                  {cust.discount10Given ? '✓ Entregado' : '⏳ Pendiente'}
+                                </span>
+                              </div>
+
+                              <div className="text-[11px] leading-tight text-slate-600 mb-2 font-sans">
+                                {cust.discount10Given ? (
+                                  <div className="space-y-0.5">
+                                    <p className="text-emerald-800 font-bold flex items-center gap-1">
+                                      <CheckCircle2 size={13} className="text-emerald-600" />
+                                      <span>10% de descuento otorgado al cliente</span>
+                                    </p>
+                                    {cust.discount10GivenAt && (
+                                      <p className="text-[10px] text-slate-500">
+                                        Aplicado el {new Date(cust.discount10GivenAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                        {cust.discount10GivenBy ? ` • ${cust.discount10GivenBy}` : ''}
+                                      </p>
+                                    )}
+                                    <p className="text-[10px] text-teal-800 font-bold flex items-center gap-1">
+                                      <Coffee size={11} className="text-teal-600" />
+                                      <span>Nuevo ciclo iniciado: 1ª taza registrada con éxito ({cust.currentStamps}/8 tazas)</span>
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-amber-950 font-medium">
+                                    ¡Completó las 8 tazas! Su contador se reinició. Al colocar que ya se le dio el 10%, comenzará el contador de nuevo y se registrará la primera taza:
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+                                {!cust.discount10Given ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDiscountModalCustomer(cust)}
+                                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold font-sans transition flex items-center justify-center gap-1.5 shadow-sm shadow-amber-600/20 cursor-pointer active:scale-95"
+                                  >
+                                    <Check size={14} className="stroke-[3]" />
+                                    <span>Colocar que ya se le dio el 10%</span>
+                                  </button>
+                                ) : (
+                                  <div className="flex items-center justify-between w-full text-[10px]">
+                                    <span className="font-bold text-emerald-700 flex items-center gap-1">
+                                      <Check size={12} className="stroke-[3]" /> Descuento registrado
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleDiscount10Given(cust.folio, false)}
+                                      className="text-slate-500 hover:text-red-600 font-bold underline cursor-pointer"
+                                      title="Cambiar estatus a no entregado"
+                                    >
+                                      Desmarcar (Cambiar a pendiente)
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Interactive actions for cashiers */}
@@ -3566,14 +4429,31 @@ export default function App() {
                           </button>
                         </div>
 
-                        {/* Virtual loyal view overlay modal click */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedOverlayCustomer(cust)}
-                          className="w-full text-center text-[10px] text-[#149b8f] font-sans font-black uppercase tracking-widest mt-1 hover:underline cursor-pointer block border-t border-dashed border-slate-150 pt-2"
-                        >
-                          💳 Ver tarjeta de lealtad digital
-                        </button>
+                        {/* Actions to view digital card or complete profile */}
+                        <div className="grid grid-cols-2 gap-2 mt-1 border-t border-dashed border-slate-150 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedOverlayCustomer(cust);
+                              setOverlayTab('profile');
+                            }}
+                            className="w-full text-center text-[10px] text-[#149b8f] font-sans font-black uppercase tracking-wider py-1.5 px-2 bg-teal-50/60 hover:bg-teal-50 rounded-xl border border-teal-200/70 cursor-pointer flex items-center justify-center gap-1 transition"
+                          >
+                            <User size={12} />
+                            <span>Ver Perfil</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedOverlayCustomer(cust);
+                              setOverlayTab('card');
+                            }}
+                            className="w-full text-center text-[10px] text-slate-700 font-sans font-black uppercase tracking-wider py-1.5 px-2 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 cursor-pointer flex items-center justify-center gap-1 transition"
+                          >
+                            <Ticket size={12} />
+                            <span>Tarjeta 3D</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

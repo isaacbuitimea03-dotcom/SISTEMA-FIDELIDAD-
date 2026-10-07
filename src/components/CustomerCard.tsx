@@ -157,29 +157,34 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
             <div className="my-1.5 z-10">
               <div className="grid grid-cols-4 gap-3 justify-items-center">
                 {stampIndices.map((_, index) => {
-                  const isStamped = index < filledCount;
+                  const isGoldCup = Boolean(session.hasReached8Cups);
+                  const isStamped = (isGoldCup && !session.discount10Given) || (index < filledCount);
                   return (
                     <motion.div
                       key={index}
                       initial={false}
                       animate={isStamped ? { scale: [1, 1.2, 1], rotate: [0, 10, -5, 0] } : {}}
                       className={`relative w-11 h-11 rounded-full border flex items-center justify-center transition-all ${
-                        isStamped 
-                          ? `bg-gradient-to-br ${currentTheme.stampGradient} border-white`
-                          : 'bg-white/10 border-white/15 hover:border-white/25 text-white/50'
+                        isGoldCup
+                          ? (isStamped 
+                              ? 'bg-gradient-to-br from-yellow-300 via-amber-400 to-amber-500 border-amber-200 text-amber-950 shadow-[0_0_12px_rgba(245,158,11,0.5)]'
+                              : 'bg-amber-500/15 border-amber-400/30 text-amber-300/70')
+                          : isStamped 
+                            ? `bg-gradient-to-br ${currentTheme.stampGradient} border-white`
+                            : 'bg-white/10 border-white/15 hover:border-white/25 text-white/50'
                       }`}
                     >
                       {isStamped ? (
-                        <Coffee className="text-slate-900 drop-shadow-[0_1px_2px_rgba(0,0,0,0.15)]" size={20} />
+                        <Coffee className={`${isGoldCup ? 'text-amber-950 stroke-[2.5]' : 'text-slate-900'} drop-shadow-[0_1px_2px_rgba(0,0,0,0.15)]`} size={20} />
                       ) : (
                         <span className="text-white/45 font-mono text-xs font-bold">{index + 1}</span>
                       )}
 
                       {/* Sparkle overlay on latest stamped stamp */}
-                      {index === filledCount - 1 && isStamped && (
+                      {(isGoldCup || (index === filledCount - 1 && isStamped)) && (
                         <motion.div 
-                          animate={{ scale: [1, 1.4, 1], opacity: [1, 0, 1] }}
-                          transition={{ repeat: Infinity, duration: 1.5 }}
+                          animate={{ scale: [1, 1.4, 1], opacity: [1, 0.4, 1] }}
+                          transition={{ repeat: Infinity, duration: 1.5, delay: index * 0.15 }}
                           className="absolute -top-1 -right-1 text-amber-200"
                         >
                           <Sparkles size={11} fill="currentColor" />
@@ -194,17 +199,38 @@ export default function CustomerCard({ session, config }: CustomerCardProps) {
             {/* Progress indicator */}
             <div className="z-10 mt-1 text-left">
               <div className="flex justify-between text-[9.5px] font-mono mb-1">
-                <span className="text-white/80 uppercase font-bold truncate max-w-[200px]">Premio: {config.mainRewardTitle}</span>
-                <span className={`${currentTheme.textColor} font-black`}>{filledCount} / {config.stampsRequired} SELLOS</span>
+                <span className="text-white/80 uppercase font-bold truncate max-w-[200px]">
+                  {session.discount10Given 
+                    ? '✨ Nuevo Ciclo • Meta de 8 Tazas' 
+                    : session.hasReached8Cups 
+                    ? '✨ Tazas Doradas de Lealtad' 
+                    : `Premio: ${config.mainRewardTitle}`}
+                </span>
+                <span className={`${currentTheme.textColor} font-black`}>
+                  {session.hasReached8Cups && !session.discount10Given 
+                    ? '8 / 8 DORADAS' 
+                    : `${filledCount} / ${config.stampsRequired} SELLOS`}
+                </span>
               </div>
               <div className="h-1.5 w-full bg-white/15 rounded-full overflow-hidden border border-white/5 p-[1px]">
                 <motion.div 
-                  className={`h-full bg-white rounded-full`}
+                  className={`h-full ${session.hasReached8Cups ? 'bg-gradient-to-r from-yellow-300 to-amber-400' : 'bg-white'} rounded-full`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${progressPercent}%` }}
+                  animate={{ width: `${session.hasReached8Cups && !session.discount10Given ? 100 : progressPercent}%` }}
                   transition={{ duration: 0.5 }}
                 />
               </div>
+
+              {Boolean(session.hasReached8Cups) && (
+                <div className="mt-1.5 flex items-center justify-between text-[9px] font-mono font-bold bg-black/25 px-2 py-0.5 rounded-lg border border-white/10">
+                  <span className={session.discount10Given ? "text-emerald-300 flex items-center gap-1" : "text-amber-300 flex items-center gap-1"}>
+                    {session.discount10Given ? "✓ 10% Descuento Otorgado • 1ª Taza Registrada" : "🎁 10% Descuento Disponible"}
+                  </span>
+                  <span className="text-white/60 text-[8px]">
+                    {session.discount10Given ? "Nuevo ciclo activo" : "Meta de 8 tazas"}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

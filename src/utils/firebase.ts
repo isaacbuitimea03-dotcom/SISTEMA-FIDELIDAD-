@@ -86,11 +86,42 @@ export async function testConnection() {
   }
 }
 
+// Helper to recursively strip undefined values before saving to Firestore
+export function cleanFirestoreDoc<T>(data: T): Record<string, any> {
+  if (!data || typeof data !== 'object') return {};
+  
+  const deepClean = (val: any): any => {
+    if (val === undefined) return undefined;
+    if (val === null) return null;
+    if (Array.isArray(val)) {
+      return val
+        .map(deepClean)
+        .filter(item => item !== undefined);
+    }
+    if (typeof val === 'object') {
+      const res: Record<string, any> = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (v !== undefined) {
+          const cleaned = deepClean(v);
+          if (cleaned !== undefined) {
+            res[k] = cleaned;
+          }
+        }
+      }
+      return res;
+    }
+    return val;
+  };
+
+  return (deepClean(data) as Record<string, any>) || {};
+}
+
 // CUSTOMERS OPERATIONS
 export async function dbSaveCustomer(customer: RegisteredCustomer) {
   const path = `customers/${customer.folio}`;
   try {
-    await setDoc(doc(db, 'customers', customer.folio), customer);
+    const cleanDoc = cleanFirestoreDoc(customer);
+    await setDoc(doc(db, 'customers', customer.folio), cleanDoc);
     // Unmark as deleted if it was previously marked as deleted
     try {
       await deleteDoc(doc(db, 'deleted_customers', customer.folio));
@@ -130,7 +161,8 @@ export async function dbGetDeletedCustomerFolios(): Promise<string[]> {
 export async function dbSaveVisit(visit: VisitRecord) {
   const path = `visits/${visit.id}`;
   try {
-    await setDoc(doc(db, 'visits', visit.id), visit);
+    const cleanDoc = cleanFirestoreDoc(visit);
+    await setDoc(doc(db, 'visits', visit.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -144,7 +176,8 @@ export async function dbSaveVisitLegacy(visit: VisitRecord) {
 export async function dbSaveLog(log: ActivityLog) {
   const path = `logs/${log.id}`;
   try {
-    await setDoc(doc(db, 'logs', log.id), log);
+    const cleanDoc = cleanFirestoreDoc(log);
+    await setDoc(doc(db, 'logs', log.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -154,7 +187,8 @@ export async function dbSaveLog(log: ActivityLog) {
 export async function dbSaveConfig(cfg: MerchantConfig) {
   const path = 'config/merchant';
   try {
-    await setDoc(doc(db, 'config', 'merchant'), cfg);
+    const cleanDoc = cleanFirestoreDoc(cfg);
+    await setDoc(doc(db, 'config', 'merchant'), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -164,7 +198,7 @@ export async function dbSaveConfig(cfg: MerchantConfig) {
 export async function dbSaveSurvey(survey: Survey) {
   const path = `surveys/${survey.id}`;
   try {
-    const cleanDoc = JSON.parse(JSON.stringify(survey));
+    const cleanDoc = cleanFirestoreDoc(survey);
     await setDoc(doc(db, 'surveys', survey.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -175,7 +209,7 @@ export async function dbSaveSurvey(survey: Survey) {
 export async function dbSaveAnswer(answer: SurveyAnswer) {
   const path = `surveyAnswers/${answer.id}`;
   try {
-    const cleanDoc = JSON.parse(JSON.stringify(answer));
+    const cleanDoc = cleanFirestoreDoc(answer);
     await setDoc(doc(db, 'surveyAnswers', answer.id), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -186,7 +220,8 @@ export async function dbSaveAnswer(answer: SurveyAnswer) {
 export async function dbSaveClerk(clerk: Clerk) {
   const path = `clerks/${clerk.code}`;
   try {
-    await setDoc(doc(db, 'clerks', clerk.code), clerk);
+    const cleanDoc = cleanFirestoreDoc(clerk);
+    await setDoc(doc(db, 'clerks', clerk.code), cleanDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -205,7 +240,8 @@ export async function dbDeleteClerk(code: string) {
 export async function dbSaveNotification(notification: AppNotification) {
   const path = `notifications/${notification.id}`;
   try {
-    await setDoc(doc(db, 'notifications', notification.id), notification);
+    const cleanDoc = cleanFirestoreDoc(notification);
+    await setDoc(doc(db, 'notifications', notification.id), cleanDoc);
     
     // Broadcast active notification payload wirelessly to subscribers even with fully closed browser/apps
     try {

@@ -9,6 +9,11 @@ export interface UserSession {
   totalStampsEarned: number;
   points: number;
   unlockedVouchers: Voucher[];
+  hasReached8Cups?: boolean;
+  discount10Given?: boolean;
+  discount10GivenAt?: string;
+  discount10GivenBy?: string;
+  discount10Notes?: string;
 }
 
 export interface VisitRecord {
@@ -33,6 +38,11 @@ export interface RegisteredCustomer {
   unlockedVouchers: Voucher[];
   visitsHistory: VisitRecord[];
   lastBirthdayCallYear?: number; // Year of the last confirmed birthday call
+  hasReached8Cups?: boolean;
+  discount10Given?: boolean;
+  discount10GivenAt?: string;
+  discount10GivenBy?: string;
+  discount10Notes?: string;
 }
 
 export interface ActivityLog {

@@ -1353,22 +1353,21 @@ export default function MerchantReportsTabPanel({
       };
 
       if (reportType === 'Fidelidad') {
-        drawHeader('Reporte de Fidelidad y Tarjetas de Socios');
+        // ---------------- PÁGINA 1: DASHBOARD EJECUTIVO, KPIS, HISTÓRICO Y RETENCIÓN ----------------
+        drawHeader('Reporte Oficial de Fidelidad y Tarjetas de Socios', 'CAFÉ & BISTRÓ LA ESTANCIA • ANÁLISIS DE LEALTAD Y VISITAS');
         
-        // ---------------- PÁGINA 1: DASHBOARD EJECUTIVO Y GRÁFICAS ----------------
-        addText('PANEL EJECUTIVO DE MÉTRICAS Y DESEMPEÑO DE FIDELIZACIÓN', 12, 11, { fontStyle: 'bold' });
-        y += 8;
+        addText('PANEL EJECUTIVO DE MÉTRICAS Y DESEMPEÑO DE FIDELIZACIÓN', 12, 10, { fontStyle: 'bold' });
+        y += 6;
         
         // KPI Summary Cards (4 Cards side by side)
         const totalVisitsCount = customers.reduce((acc, c) => acc + (c.totalStampsEarned || 0), 0);
         const totalUnlockedVouchers = customers.reduce((acc, c) => acc + (c.unlockedVouchers?.length || 0), 0);
-        const avgVisits = customers.length > 0 ? (totalVisitsCount / customers.length).toFixed(1) : '0';
+        const avgVisits = customers.length > 0 ? (totalVisitsCount / customers.length).toFixed(1) : '0.0';
         
-        // Draw 4 aesthetic card backgrounds
+        // Draw 4 aesthetic KPI cards
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(226, 232, 240);
         
-        // Draw KPI Cards
         // Card 1: Socios
         doc.rect(10, y, 44, 16, 'FD');
         doc.setFont('helvetica', 'bold');
@@ -1376,7 +1375,7 @@ export default function MerchantReportsTabPanel({
         doc.setTextColor(20, 155, 143);
         doc.text(`${customers.length}`, 14, y + 6);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
         doc.text('SOCIOS REGISTRADOS', 14, y + 11);
         
@@ -1385,11 +1384,11 @@ export default function MerchantReportsTabPanel({
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(30, 41, 59);
-        doc.text(`${totalVisitsCount}`, 62, y + 11);
+        doc.text(`${totalVisitsCount}`, 62, y + 6);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
-        doc.text('VISITAS TOTALES', 62, y + 15);
+        doc.text('VISITAS TOTALES', 62, y + 11);
 
         // Card 3: Tasa de Retención
         doc.rect(106, y, 44, 16, 'FD');
@@ -1398,7 +1397,7 @@ export default function MerchantReportsTabPanel({
         doc.setTextColor(79, 70, 229); // Royal Indigo
         doc.text(`${retentionRate}%`, 110, y + 6);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
         doc.text('TASA DE RETENCIÓN', 110, y + 11);
 
@@ -1409,24 +1408,366 @@ export default function MerchantReportsTabPanel({
         doc.setTextColor(13, 148, 136);
         doc.text(`${avgVisits}`, 158, y + 6);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
         doc.text('VISITAS PROMEDIO', 158, y + 11);
 
-        y += 24;
+        y += 22;
 
-        // Visual Graphs Layout
-        // Border Box Left: Equipo Bar Chart
+        // --- GRÁFICA 1: HISTÓRICO Y TENDENCIA DE VISITAS DIARIAS ---
+        const g1Y = y;
         doc.setFillColor(255, 255, 255);
         doc.setDrawColor(226, 232, 240);
-        doc.rect(10, y, 92, 58, 'S');
-        
+        doc.rect(10, g1Y, 190, 88, 'FD');
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(51, 65, 85);
-        doc.text('ACCIONAR DE COLABORADORES (RANKING / ACCIONES)', 14, y + 6);
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('1. HISTÓRICO Y TENDENCIA DE VISITAS DIARIAS (VARIACIÓN TEMPORAL)', 14, g1Y + 7);
         
-        let barY = y + 15;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Comportamiento de visitas de los últimos 7 días registrados', 14, g1Y + 11);
+
+        // Render Vector Curve/Line Chart
+        const trends = getVisitTrends();
+        const maxTrendCount = Math.max(...trends.map(t => t.count), 1);
+        const chartX = 16;
+        const chartY = g1Y + 16;
+        const chartW = 178;
+        const chartH = 34;
+        
+        // Grid background lines
+        doc.setDrawColor(241, 245, 249);
+        doc.setLineWidth(0.4);
+        doc.line(chartX, chartY, chartX + chartW, chartY);
+        doc.line(chartX, chartY + chartH / 2, chartX + chartW, chartY + chartH / 2);
+        doc.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH);
+
+        // Calculate points
+        const points = trends.map((t, idx) => {
+          const px = chartX + 10 + (idx * (chartW - 20)) / Math.max(1, trends.length - 1);
+          const py = chartY + chartH - 4 - (t.count / maxTrendCount) * (chartH - 10);
+          return { px, py, label: t.label, val: t.count };
+        });
+
+        // Draw Area polygon
+        if (points.length > 1) {
+          doc.setFillColor(240, 253, 250); // very soft teal
+          const areaLines: { op: string, c: number[] }[] = [];
+          for (let i = 0; i < points.length; i++) {
+            if (i === 0) {
+              doc.setDrawColor(20, 155, 143);
+              doc.setLineWidth(0.8);
+            }
+          }
+        }
+
+        // Draw connecting line
+        doc.setDrawColor(20, 155, 143);
+        doc.setLineWidth(1.2);
+        for (let i = 0; i < points.length - 1; i++) {
+          doc.line(points[i].px, points[i].py, points[i + 1].px, points[i + 1].py);
+        }
+
+        // Draw dots and labels
+        points.forEach((p) => {
+          // Circle point
+          doc.setFillColor(20, 155, 143);
+          doc.circle(p.px, p.py, 1.8, 'F');
+          doc.setFillColor(255, 255, 255);
+          doc.circle(p.px, p.py, 0.8, 'F');
+
+          // Number above point
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(20, 155, 143);
+          doc.text(String(p.val), p.px, p.py - 3, { align: 'center' });
+
+          // Date label below
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(p.label, p.px, chartY + chartH + 5, { align: 'center' });
+        });
+
+        // Brief Explanation Box for Graph 1
+        const expG1Y = g1Y + 58;
+        doc.setFillColor(240, 253, 250); // Soft teal bg
+        doc.setDrawColor(153, 246, 228); // Teal border
+        doc.rect(14, expG1Y, 182, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 118, 110);
+        doc.text('💡 Explicación y Análisis de la Gráfica:', 17, expG1Y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        const expG1Text = doc.splitTextToSize(
+          'Registra la evolución diaria del flujo de visitas acumuladas en el Bistro. Permite identificar los días con picos de concurrencia comercial, medir el impacto inmediato de promociones en mostrador y proyectar con precisión la demanda de insumos, café y repostería.',
+          176
+        );
+        let curExpY = expG1Y + 9.5;
+        expG1Text.forEach((l: string) => {
+          doc.text(l, 17, curExpY);
+          curExpY += 3.8;
+        });
+
+        y += 94;
+
+        // --- GRÁFICA 2: RETENCIÓN Y CICLO DE VIDA DE SOCIOS ---
+        const g2Y = y;
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(10, g2Y, 190, 88, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('2. RETENCIÓN Y CICLO DE VIDA DE SOCIOS (ÍNDICE DE RECOMPRA)', 14, g2Y + 7);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Segmentación de clientes según recurrencia de consumo en el Bistro', 14, g2Y + 11);
+
+        const retStats = getRetentionStats();
+        
+        // Left: Circular Retention Badge
+        doc.setFillColor(238, 242, 255);
+        doc.rect(14, g2Y + 16, 46, 36, 'F');
+        doc.setDrawColor(199, 210, 254);
+        doc.rect(14, g2Y + 16, 46, 36, 'S');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.setTextColor(79, 70, 229);
+        doc.text(`${retStats.recurringPct}%`, 37, g2Y + 31, { align: 'center' });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('TASA DE RETENCIÓN', 37, g2Y + 38, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('(2+ Visitas Registradas)', 37, g2Y + 44, { align: 'center' });
+
+        // Right: Segment Progress Bars
+        const barStartX = 66;
+        let segY = g2Y + 19;
+        
+        drawPDFProgressBar('Socios Recurrentes (2+ visitas)', retStats.returningCount, customers.length, barStartX, segY, 80, [79, 70, 229]);
+        segY += 12;
+        drawPDFProgressBar('Socios Nuevos (1 sola visita)', retStats.singleVisitCount, customers.length, barStartX, segY, 80, [217, 119, 6]);
+        segY += 12;
+        drawPDFProgressBar('Socios Inactivos (0 visitas)', retStats.noVisitCount, customers.length, barStartX, segY, 80, [148, 163, 184]);
+
+        // Brief Explanation Box for Graph 2
+        const expG2Y = g2Y + 58;
+        doc.setFillColor(238, 242, 255); // Soft indigo bg
+        doc.setDrawColor(199, 210, 254); // Indigo border
+        doc.rect(14, expG2Y, 182, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(67, 56, 202);
+        doc.text('💡 Explicación y Análisis de la Gráfica:', 17, expG2Y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        const expG2Text = doc.splitTextToSize(
+          `Evalúa la proporción de clientes que convierten una visita inicial en lealtad a largo plazo. Una retención del ${retStats.recurringPct}% refleja la eficacia del tarjetón de sellos para incentivar la recompra. La estrategia recomendada es contactar a los socios de 1 sola visita para motivar su regreso antes de los 15 días.`,
+          176
+        );
+        let curExp2Y = expG2Y + 9.5;
+        expG2Text.forEach((l: string) => {
+          doc.text(l, 17, curExp2Y);
+          curExp2Y += 3.8;
+        });
+
+        // ---------------- PÁGINA 2: DISTRIBUCIÓN DEL CLUB Y HÁBITOS TEMPORALES ----------------
+        doc.addPage();
+        y = 15;
+        drawHeader('Comportamiento Temporal y Distribución de Tarjetas', 'VIAJE DEL TARJETÓN DE SELLOS Y HÁBITOS DE CONSUMO');
+
+        // --- GRÁFICA 3: DISTRIBUCIÓN DEL CLUB POR ETAPAS DEL TARJETÓN ---
+        const g3Y = y;
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(10, g3Y, 190, 88, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('3. DISTRIBUCIÓN DEL CLUB POR ETAPAS DEL TARJETÓN (PROGRESO AL PREMIO)', 14, g3Y + 7);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Número de socios ubicados en cada nivel de acumulación de sellos (0 a 8 tazas)', 14, g3Y + 11);
+
+        const distribution = getStampsDistribution();
+        const maxDistVal = Math.max(...Object.values(distribution), 1);
+        let jBarY = g3Y + 18;
+
+        const distEntries = [
+          { label: '0-2 Tazas (Iniciando)', key: '0-2 Tazas (Iniciando)', color: [100, 116, 139] },
+          { label: '3-5 Tazas (Nivel Medio / Compromiso)', key: '3-5 Tazas (Medio)', color: [20, 155, 143] },
+          { label: '6-7 Tazas (Avanzado / Próximo al Canje)', key: '6-7 Tazas (Avanzado)', color: [79, 70, 229] },
+          { label: '8+ Tazas (Meta Cumplida / 10% Descuento)', key: '8+ Tazas (Completado)', color: [16, 185, 129] }
+        ];
+
+        distEntries.forEach((entry) => {
+          const val = distribution[entry.key] || 0;
+          drawPDFProgressBar(entry.label, val, maxDistVal, 14, jBarY, 130, entry.color);
+          jBarY += 9.5;
+        });
+
+        // Brief Explanation Box for Graph 3
+        const expG3Y = g3Y + 58;
+        doc.setFillColor(240, 253, 250); // Soft teal bg
+        doc.setDrawColor(153, 246, 228);
+        doc.rect(14, expG3Y, 182, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 118, 110);
+        doc.text('💡 Explicación y Análisis de la Gráfica:', 17, expG3Y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        const expG3Text = doc.splitTextToSize(
+          'Clasifica a la base de clientes según su avance hacia la meta de 8 tazas. Los socios en etapa 6-7 y 8+ tazas representan el segmento de mayor lealtad y valor inmediato; se recomienda que los cajeros los feliciten al llegar a caja para motivar el consumo y redención de su beneficio del 10%.',
+          176
+        );
+        let curExp3Y = expG3Y + 9.5;
+        expG3Text.forEach((l: string) => {
+          doc.text(l, 17, curExp3Y);
+          curExp3Y += 3.8;
+        });
+
+        y += 94;
+
+        // --- GRÁFICA 4 & 5: AFLUENCIA POR DÍA DE LA SEMANA Y HORARIOS PICO ---
+        const g45Y = y;
+        const daysOfWeek = getVisitsByDayOfWeek();
+        const maxDayVal = Math.max(...daysOfWeek.map(d => d.count), 1);
+        const topDay = daysOfWeek.reduce((prev, current) => (prev.count > current.count) ? prev : current, daysOfWeek[0] || { day: 'Domingo', count: 0 });
+
+        const timeSegments = getVisitsByTimeOfDay();
+        const maxTimeVal = Math.max(...timeSegments.map(t => t.count), 1);
+        const topTime = timeSegments.reduce((prev, current) => (prev.count > current.count) ? prev : current, timeSegments[0] || { label: 'Mañana', count: 0 });
+
+        // Left Card: Días de la semana
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(10, g45Y, 92, 98, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        doc.text('4. AFLUENCIA POR DÍA DE SEMANA', 14, g45Y + 7);
+
+        let dBarY = g45Y + 15;
+        daysOfWeek.forEach((d) => {
+          const isTop = d.day === topDay.day && d.count > 0;
+          const color = isTop ? [79, 70, 229] : [148, 163, 184];
+          drawPDFProgressBar(`${d.day}${isTop ? ' ★' : ''}`, d.count, maxDayVal, 14, dBarY, 48, color);
+          dBarY += 7.5;
+        });
+
+        // Brief Explanation Box for Graph 4
+        const expG4Y = g45Y + 70;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(13, expG4Y, 86, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(79, 70, 229);
+        doc.text(`💡 Explicación (Día Pico: ${topDay.day}):`, 15, expG4Y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(51, 65, 85);
+        const expG4Text = doc.splitTextToSize(
+          `Identifica los días con mayor flujo (${topDay.day}) y días valle. Ideal para programar dinámicas de sellos dobles en días de menor concurrencia.`,
+          82
+        );
+        let curExp4Y = expG4Y + 9;
+        expG4Text.forEach((l: string) => {
+          doc.text(l, 15, curExp4Y);
+          curExp4Y += 3.5;
+        });
+
+        // Right Card: Franjas Horarias
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(108, g45Y, 92, 98, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        doc.text('5. DISTRIBUCIÓN POR BLOQUES HORARIOS', 112, g45Y + 7);
+
+        let tBarY = g45Y + 16;
+        timeSegments.forEach((t) => {
+          const isTop = t.label === topTime.label && t.count > 0;
+          const color = isTop ? [217, 119, 6] : [148, 163, 184];
+          drawPDFProgressBar(`${t.label.split(' ')[0]}${isTop ? ' ★' : ''}`, t.count, maxTimeVal, 112, tBarY, 48, color);
+          tBarY += 12;
+        });
+
+        // Brief Explanation Box for Graph 5
+        const expG5Y = g45Y + 70;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(111, expG5Y, 86, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(217, 119, 6);
+        doc.text(`💡 Explicación (Pico: ${topTime.label.split(' ')[0]}):`, 113, expG5Y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(51, 65, 85);
+        const expG5Text = doc.splitTextToSize(
+          `Determina las horas de máxima demanda en barra (${topTime.label}). Permite coordinar turnos de baristas y tiempos de reposición de alimentos.`,
+          82
+        );
+        let curExp5Y = expG5Y + 9;
+        expG5Text.forEach((l: string) => {
+          doc.text(l, 113, curExp5Y);
+          curExp5Y += 3.5;
+        });
+
+        // ---------------- PÁGINA 3: RENDIMIENTO DEL EQUIPO, TOP SOCIOS Y SÍNTESIS ----------------
+        doc.addPage();
+        y = 15;
+        drawHeader('Rendimiento del Equipo y Top Socios VIP', 'AUDITORÍA DE PERSONAL Y RANKING DE CLIENTES FRECUENTES');
+
+        // --- GRÁFICA 6: ACTIVIDAD DE ENCARGADOS / COLABORADORES ---
+        const g6Y = y;
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(10, g6Y, 190, 84, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('6. RENDIMIENTO Y ACTIVIDAD DE ENCARGADOS / COLABORADORES EN CAJA', 14, g6Y + 7);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Total de acciones operativas registradas por cada cajero/colaborador autorizado', 14, g6Y + 11);
+
         const maxClerkActions = Math.max(...clerks.map(c => {
           const metrics = currentClerkCounts[c.code.toUpperCase()] || { total: 0 };
           let total = metrics.total;
@@ -1438,135 +1779,233 @@ export default function MerchantReportsTabPanel({
           return total;
         }), 1);
 
-        clerks.forEach((cl) => {
-          const metrics = currentClerkCounts[cl.code.toUpperCase()] || { total: 0 };
+        let clBarY = g6Y + 18;
+        clerks.slice(0, 5).forEach((cl) => {
+          const metrics = currentClerkCounts[cl.code.toUpperCase()] || { total: 0, registers: 0, visits: 0, birthdayCalls: 0 };
           let total = metrics.total;
           if (total === 0) {
             if (cl.code === 'CR02') total = 14;
             if (cl.code === 'C03') total = 8;
             if (cl.code === 'CO1') total = 5;
           }
-          drawPDFProgressBar(`${cl.name} (${cl.code})`, total, maxClerkActions, 14, barY, 52, [20, 155, 143]);
-          barY += 9;
+          const detail = metrics.birthdayCalls > 0 ? ` [${metrics.birthdayCalls} llamadas cpl.]` : '';
+          drawPDFProgressBar(`${cl.name} (${cl.code})${detail}`, total, maxClerkActions, 14, clBarY, 115, [20, 155, 143]);
+          clBarY += 7.8;
         });
 
-        // Border Box Right: Journey Bar Chart
-        doc.rect(108, y, 92, 58, 'S');
+        // Brief Explanation Box for Graph 6
+        const expG6Y = g6Y + 58;
+        doc.setFillColor(240, 253, 250);
+        doc.setDrawColor(153, 246, 228);
+        doc.rect(14, expG6Y, 182, 22, 'FD');
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(51, 65, 85);
-        doc.text('SOCIOS EN CADA ETAPA DEL TARJETÓN DE SELLOS', 112, y + 6);
-        
-        let journeyBarY = y + 15;
-        const distribution = getStampsDistribution();
-        const maxDistVal = Math.max(...Object.values(distribution), 1);
-        
-        Object.entries(distribution).forEach(([label, count]) => {
-          drawPDFProgressBar(label, count, maxDistVal, 112, journeyBarY, 52, [79, 70, 229]);
-          journeyBarY += 9;
-        });
-
-        y += 66;
-
-        // Visual Graph #3: Temporal Behavior and Peak Afluence Box
-        doc.rect(10, y, 190, 36, 'S');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text('ANÁLISIS DE COMPORTAMIENTO: AFLUENCIA TEMPORAL Y PICO DE SOCIOS', 14, y + 6);
-
-        const daysOfWeek = getVisitsByDayOfWeek();
-        const maxDayVal = Math.max(...daysOfWeek.map(d => d.count), 1);
-        const topDay = daysOfWeek.reduce((prev, current) => (prev.count > current.count) ? prev : current, daysOfWeek[0]);
-
-        const timeSegments = getVisitsByTimeOfDay();
-        const maxTimeVal = Math.max(...timeSegments.map(t => t.count), 1);
-        const topTime = timeSegments.reduce((prev, current) => (prev.count > current.count) ? prev : current, timeSegments[0]);
-
-        drawPDFProgressBar(`Día Pico: ${topDay.day}`, topDay.count, maxDayVal, 14, y + 16, 75, [79, 70, 229]);
-        drawPDFProgressBar(`Horario Pico: ${topTime.label.split(' ')[0]}`, topTime.count, maxTimeVal, 108, y + 16, 75, [245, 158, 11]);
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 118, 110);
+        doc.text('💡 Explicación y Análisis de la Gráfica:', 17, expG6Y + 5);
 
         doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        const expG6Text = doc.splitTextToSize(
+          'Audita el compromiso del personal en mostrador acreditando sellos, dando de alta nuevos socios y felicitando en cumpleaños. Garantiza una experiencia cordial y sin omisiones en el punto de cobro.',
+          176
+        );
+        let curExp6Y = expG6Y + 9.5;
+        expG6Text.forEach((l: string) => {
+          doc.text(l, 17, curExp6Y);
+          curExp6Y += 3.8;
+        });
+
+        y += 90;
+
+        // --- GRÁFICA 7: TOP SOCIOS FRECUENTES (PRIORIDAD TARJETAS 4 A 8 TAZAS) ---
+        const g7Y = y;
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(10, g7Y, 190, 88, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('7. TOP SOCIOS FRECUENTES Y FIDELIZADOS (PRIORIDAD 4 A 8 TAZAS)', 14, g7Y + 7);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Ranking de clientes con mayor progreso en su tarjeta de lealtad (Objetivo: 8 tazas)', 14, g7Y + 11);
+
+        let topCustY = g7Y + 18;
+        topCustomers.slice(0, 5).forEach((cust, idx) => {
+          const current = cust.currentStamps || 0;
+          let badge = '⭐ Plata';
+          let badgeColor: [number, number, number] = [79, 70, 229];
+          if (current >= 8) {
+            badge = '🎁 ¡Canje Listo!';
+            badgeColor = [16, 185, 129];
+          } else if (current >= 6) {
+            badge = '🔥 Oro';
+            badgeColor = [217, 119, 6];
+          }
+
+          const custLabel = `#${idx + 1} ${cust.name} (#${cust.folio}) - [${badge}]`;
+          drawPDFProgressBar(custLabel, current, 8, 14, topCustY, 115, badgeColor);
+          topCustY += 7.8;
+        });
+
+        // Brief Explanation Box for Graph 7
+        const expG7Y = g7Y + 60;
+        doc.setFillColor(238, 242, 255);
+        doc.setDrawColor(199, 210, 254);
+        doc.rect(14, expG7Y, 182, 24, 'FD');
+
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.5);
-        doc.text(`* El club de fidelidad registra mayor actividad los días ${topDay.day} en el horario de la ${topTime.label.toLowerCase()}.`, 14, y + 28);
-        doc.text(`Tasa de Retención actual de la clientela: ${retentionRate}% (Socios con 2+ visitas).`, 14, y + 32);
+        doc.setTextColor(67, 56, 202);
+        doc.text('💡 Explicación y Análisis de la Gráfica:', 17, expG7Y + 5);
 
-        y += 44;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(51, 65, 85);
+        const expG7Text = doc.splitTextToSize(
+          'Reconoce a los clientes VIP con mayor frecuencia de consumo en el Bistro. Facilita brindar un trato preferencial personalizado llamándolos por su nombre y asegurando su satisfacción continua en cada visita.',
+          176
+        );
+        let curExp7Y = expG7Y + 9.5;
+        expG7Text.forEach((l: string) => {
+          doc.text(l, 17, curExp7Y);
+          curExp7Y += 3.8;
+        });
 
-        // Brief conclusion block on first page
+        y += 92;
+
+        // Executive Strategy Conclusion Box
         doc.setFillColor(248, 250, 252);
-        doc.rect(10, y, 190, 16, 'F');
         doc.setDrawColor(203, 213, 225);
-        doc.rect(10, y, 190, 16, 'S');
+        doc.rect(10, y, 190, 22, 'FD');
         
-        y += 6;
-        addText('RECOMENDACIÓN ANALÍTICA DE GESTIÓN DE CLUB:', 14, 8, { fontStyle: 'bold' });
-        y += 4.5;
-        addText(`Actualmente el club cuenta con ${customers.length} socios, una tasa de retención del ${retentionRate}% y mayor afluencia los días ${topDay.day}. Fomente visitas ofreciendo bonus-sellos en días de baja facturación.`, 14, 7.5, { fontStyle: 'italic' });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text('📋 CONCLUSIÓN ESTRATÉGICA DEL PROGRAMA DE LEALTAD:', 14, y + 5.5);
 
-        // Go to next page for table details
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(71, 85, 105);
+        const conclText = doc.splitTextToSize(
+          `Actualmente el club cuenta con ${customers.length} socios registrados y una tasa de retención del ${retentionRate}%. El día de mayor movimiento es el ${topDay.day} y el horario con más afluencia es ${topTime.label.toLowerCase()}. Se recomienda incentivar el avance de socios en etapa media (3-5 tazas) con promociones por horario y dar seguimiento especial a los socios con tarjeta completada (8 tazas) para su recompensa del 10% de consumo.`,
+          182
+        );
+        let curConclY = y + 9.5;
+        conclText.forEach((l: string) => {
+          doc.text(l, 14, curConclY);
+          curConclY += 3.6;
+        });
+
+        // ---------------- PÁGINA 4+ (Y SIGUIENTES): PADRÓN DETALLADO DE SOCIOS ----------------
         doc.addPage();
         y = 15;
 
-        addText('REGISTRO DETALLADO DE SOCIOS DEL CLUB Y TARJETEROS', 12, 11, { fontStyle: 'bold' });
-        y += 8;
+        drawHeader('Padrón Oficial de Socios y Auditoría de Sellos', 'DETALLE COMPLETO DE TARJETAS VIRTUALES REGISTRADAS');
 
-        // Header de Tabla de Socios
-        doc.setFillColor(241, 245, 249);
-        doc.rect(10, y, 190, 8, 'F');
-        y += 6;
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text('FOLIO', 12, y);
-        doc.text('NOMBRE DEL SOCIO', 28, y);
-        doc.text('TELÉFONO', 85, y);
-        doc.text('SELLOS ACT.', 125, y);
-        doc.text('RECOMPENSAS', 150, y);
-        doc.text('PUNTOS', 182, y);
-        
-        y += 6;
+        addText('REGISTRO DETALLADO DE SOCIOS DEL CLUB Y TARJETEROS', 12, 10, { fontStyle: 'bold' });
+        y += 7;
 
-        customers.forEach((c) => {
-          if (y > 275) {
+        // Table Header
+        const drawTableHeader = () => {
+          doc.setFillColor(241, 245, 249);
+          doc.rect(10, y, 190, 8, 'F');
+          doc.setDrawColor(203, 213, 225);
+          doc.rect(10, y, 190, 8, 'S');
+
+          y += 5.5;
+          doc.setFontSize(7.5);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(30, 41, 59);
+          doc.text('FOLIO', 13, y);
+          doc.text('NOMBRE DEL SOCIO', 30, y);
+          doc.text('TELÉFONO', 88, y);
+          doc.text('SELLOS ACT.', 122, y);
+          doc.text('ESTATUS RECOMPENSA', 148, y);
+          doc.text('PUNTOS', 184, y);
+          y += 5;
+        };
+
+        drawTableHeader();
+
+        customers.forEach((c, cIdx) => {
+          if (y > 270) {
             doc.addPage();
             y = 15;
-            // Redraw header
-            doc.setFillColor(241, 245, 249);
-            doc.rect(10, y, 190, 8, 'F');
-            y += 6;
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'bold');
-            doc.text('FOLIO', 12, y);
-            doc.text('NOMBRE DEL SOCIO', 28, y);
-            doc.text('TELÉFONO', 85, y);
-            doc.text('SELLOS ACT.', 125, y);
-            doc.text('RECOMPENSAS', 150, y);
-            doc.text('PUNTOS', 182, y);
-            y += 6;
+            drawHeader('Padrón Oficial de Socios y Auditoría de Sellos', 'DETALLE COMPLETO DE TARJETAS VIRTUALES REGISTRADAS');
+            addText('REGISTRO DETALLADO DE SOCIOS DEL CLUB Y TARJETEROS (CONTINUACIÓN)', 12, 10, { fontStyle: 'bold' });
+            y += 7;
+            drawTableHeader();
+          }
+
+          // Alternating row background
+          if (cIdx % 2 === 0) {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(10, y - 3.5, 190, 6.5, 'F');
           }
 
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.text(String(c.folio || ''), 12, y);
+          doc.setFontSize(7.5);
+          doc.setTextColor(30, 41, 59);
+          doc.text(String(c.folio || ''), 13, y);
 
           let trimmedName = c.name || 'Socio sin nombre';
-          if (trimmedName.length > 25) {
-            trimmedName = trimmedName.substring(0, 23) + '...';
+          if (trimmedName.length > 26) {
+            trimmedName = trimmedName.substring(0, 24) + '...';
           }
-          doc.text(trimmedName, 28, y);
-          doc.text(String(c.phone || 'N/A'), 85, y);
-          doc.text(`${c.currentStamps || 0}/8`, 128, y);
+          doc.text(trimmedName, 30, y);
 
+          const phoneStr = c.phone ? String(c.phone).substring(0, 15) : 'N/A';
+          doc.text(phoneStr, 88, y);
+
+          // Stamps
+          const stCount = c.currentStamps || 0;
+          doc.setFont('helvetica', 'bold');
+          if (stCount >= 8) {
+            doc.setTextColor(16, 185, 129);
+          } else if (stCount >= 4) {
+            doc.setTextColor(79, 70, 229);
+          } else {
+            doc.setTextColor(71, 85, 105);
+          }
+          doc.text(`${stCount}/8`, 124, y);
+
+          // Status Recompensa
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
           const redeemed = c.unlockedVouchers?.filter(v => v.isRedeemed).length || 0;
           const totalV = c.unlockedVouchers?.length || 0;
-          const left = 8 - (c.currentStamps || 0);
-          const recompensaText = totalV > 0 ? `${redeemed}/${totalV} canjes` : `Faltan ${left} tazas`;
-          doc.text(recompensaText, 150, y);
-          doc.text(`${c.points || 0} pts`, 182, y);
+          const left = Math.max(0, 8 - stCount);
+          let recompensaText = '';
+          if (c.discount10Given) {
+            recompensaText = '✓ 10% Entregado';
+            doc.setTextColor(16, 185, 129);
+          } else if (c.hasReached8Cups || stCount >= 8) {
+            recompensaText = '🎁 10% Pendiente';
+            doc.setTextColor(217, 119, 6);
+          } else if (totalV > 0) {
+            recompensaText = `${redeemed}/${totalV} canjes`;
+            doc.setTextColor(79, 70, 229);
+          } else {
+            recompensaText = `Faltan ${left} tazas`;
+            doc.setTextColor(100, 116, 139);
+          }
+          doc.text(recompensaText, 148, y);
 
+          doc.setTextColor(30, 41, 59);
+          doc.text(`${c.points || 0} pts`, 184, y);
+
+          // Row divider line
           doc.setDrawColor(241, 245, 249);
-          doc.line(10, y + 2, 200, y + 2);
+          doc.setLineWidth(0.3);
+          doc.line(10, y + 3, 200, y + 3);
           
-          y += 6;
+          y += 6.5;
         });
 
       } else {
@@ -1924,6 +2363,20 @@ export default function MerchantReportsTabPanel({
             y += 3;
           }
         });
+      }
+
+      // Add page footers and numbers to every page in the document
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.4);
+        doc.line(10, 287, 200, 287);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Café & Bistró La Estancia • Sistema de Fidelidad y Lealtad', 12, 292);
+        doc.text(`Página ${p} de ${totalPages}`, 198, 292, { align: 'right' });
       }
 
       // Descargar el archivo PDF real
@@ -3820,6 +4273,18 @@ export default function MerchantReportsTabPanel({
                           '📞 Llamada Cumpleaños'
                         ) : (item.type as string) === 'birthday_whatsapp' ? (
                           '💬 WhatsApp Cumpleaños'
+                        ) : (item.type === 'reward_unlocked' || (item.title && item.title.toLowerCase().includes('8 tazas'))) ? (
+                          <span className="text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1.5 w-fit text-[11px]">
+                            🏆 Meta 8 Tazas (Dorado)
+                          </span>
+                        ) : (item.type === 'voucher_redeemed' || (item.title && item.title.toLowerCase().includes('10% descuento entregado'))) ? (
+                          <span className="text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1.5 w-fit text-[11px]">
+                            🎁 10% Descuento Entregado
+                          </span>
+                        ) : (item.title && item.title.toLowerCase().includes('10% descuento pendiente')) ? (
+                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1.5 w-fit text-[11px]">
+                            ⏳ 10% Descuento Pendiente
+                          </span>
                         ) : (item.type === 'customer_edited' || (item.title && item.title.toLowerCase().includes('edici'))) ? (
                           <span className="text-amber-800 font-bold flex items-center gap-1.5">
                             ✏️ Edición de Cliente
@@ -3859,6 +4324,12 @@ export default function MerchantReportsTabPanel({
                       <td className={`p-3.5 text-right font-mono font-extrabold ${isModifiedAction ? 'text-amber-700' : 'text-[#149b8f]'}`}>
                         {item.type === 'birthday_call' || (item.type as string) === 'birthday_whatsapp' 
                           ? 'Completado' 
+                          : (item.type === 'reward_unlocked' || (item.title && item.title.toLowerCase().includes('8 tazas')))
+                          ? '🏆 8 Tazas (Dorado)'
+                          : (item.type === 'voucher_redeemed' || (item.title && item.title.toLowerCase().includes('10% descuento entregado')))
+                          ? '✓ 10% Aplicado'
+                          : (item.title && item.title.toLowerCase().includes('10% descuento pendiente'))
+                          ? '⏳ Pendiente'
                           : (item.type === 'customer_edited' || (item.title && item.title.toLowerCase().includes('edici')))
                           ? `Modificado (${item.amount >= 0 ? '+' : ''}${item.amount})`
                           : (item.type === 'customer_deleted' || (item.title && (item.title.toLowerCase().includes('eliminad') || item.title.toLowerCase().includes('borrad'))))
